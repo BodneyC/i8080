@@ -1,0 +1,278 @@
+#[derive(Clone, Debug)]
+pub struct InstMeta {
+    pub name: String,
+    pub argb: bool,
+    pub argw: bool,
+    pub cycles: u8,
+}
+
+impl InstMeta {
+    fn new_no_args<S: Into<String>>(name: S) -> Self {
+        Self {
+            name: name.into(),
+            ..Default::default()
+        }
+    }
+
+    fn new_arg0<S: Into<String>>(name: S) -> Self {
+        Self {
+            name: name.into(),
+            argb: true,
+            ..Default::default()
+        }
+    }
+
+    fn new_argw<S: Into<String>>(name: S) -> Self {
+        Self {
+            name: name.into(),
+            argw: true,
+            ..Default::default()
+        }
+    }
+
+    pub fn width(&self) -> usize {
+        if self.argw {
+            3
+        } else if self.argb {
+            2
+        } else {
+            1
+        }
+    }
+}
+
+impl Default for InstMeta {
+    fn default() -> Self {
+        Self {
+            name: "".to_owned(),
+            argb: false,
+            argw: false,
+            cycles: 0,
+        }
+    }
+}
+
+// Stolen from https://github.com/superzazu/8080/blob/master/i8080.c#L7
+#[rustfmt::skip]
+const OPCODE_CYCLES: [u8; 0x100] = [
+//  0  1   2   3   4   5   6   7   8  9   A   B   C   D   E  F
+    4, 10, 7,  5,  5,  5,  7,  4,  4, 10, 7,  5,  5,  5,  7, 4,  // 0
+    4, 10, 7,  5,  5,  5,  7,  4,  4, 10, 7,  5,  5,  5,  7, 4,  // 1
+    4, 10, 16, 5,  5,  5,  7,  4,  4, 10, 16, 5,  5,  5,  7, 4,  // 2
+    4, 10, 13, 5,  10, 10, 10, 4,  4, 10, 13, 5,  5,  5,  7, 4,  // 3
+    5, 5,  5,  5,  5,  5,  7,  5,  5, 5,  5,  5,  5,  5,  7, 5,  // 4
+    5, 5,  5,  5,  5,  5,  7,  5,  5, 5,  5,  5,  5,  5,  7, 5,  // 5
+    5, 5,  5,  5,  5,  5,  7,  5,  5, 5,  5,  5,  5,  5,  7, 5,  // 6
+    7, 7,  7,  7,  7,  7,  7,  7,  5, 5,  5,  5,  5,  5,  7, 5,  // 7
+    4, 4,  4,  4,  4,  4,  7,  4,  4, 4,  4,  4,  4,  4,  7, 4,  // 8
+    4, 4,  4,  4,  4,  4,  7,  4,  4, 4,  4,  4,  4,  4,  7, 4,  // 9
+    4, 4,  4,  4,  4,  4,  7,  4,  4, 4,  4,  4,  4,  4,  7, 4,  // A
+    4, 4,  4,  4,  4,  4,  7,  4,  4, 4,  4,  4,  4,  4,  7, 4,  // B
+    5, 10, 10, 10, 11, 11, 7,  11, 5, 10, 10, 10, 11, 17, 7, 11, // C
+    5, 10, 10, 10, 11, 11, 7,  11, 5, 10, 10, 10, 11, 17, 7, 11, // D
+    5, 10, 10, 18, 11, 11, 7,  11, 5, 5,  10, 4,  11, 17, 7, 11, // E
+    5, 10, 10, 4,  11, 11, 7,  11, 5, 5,  10, 4,  11, 17, 7, 11  // F
+];
+
+pub fn i8080_instruction_meta() -> Vec<InstMeta> {
+    // TODO: This is a little wasteful...
+    let mut set: Vec<InstMeta> = (0x00..=0xff).map(|_| Default::default()).collect();
+
+    // ------------------------------------------ MOV
+
+    let reg_list: [char; 8] = ['B', 'C', 'D', 'E', 'H', 'L', 'M', 'A'];
+
+    for (lidx, lreg) in reg_list.iter().enumerate() {
+        for (ridx, rreg) in reg_list.iter().enumerate() {
+            let idx = 0x40 + (lidx * reg_list.len()) + ridx;
+            if idx == 0x76 {
+                // Undocumented nop (MOV M M)
+                continue;
+            }
+            set[idx] = InstMeta::new_no_args(format!("MOV {} {}", lreg, rreg));
+        }
+    }
+
+    // ------------------------------------------ CONDITIONALS
+
+    let conditionals = ["NZ", "Z", "NC", "C", "PO", "PE", "P", "M"];
+
+    // Jxx
+    set[0xc3] = InstMeta::new_argw("JMP u16");
+    set[0xe9] = InstMeta::new_no_args("PCHL");
+
+    for (cond, idx) in conditionals.iter().zip((0xc2..=0xfa).step_by(0x8)) {
+        set[idx] = InstMeta::new_argw(format!("J{} u16", cond));
+    }
+
+    // Cxx
+    set[0xcd] = InstMeta::new_argw("CALL u16");
+
+    for (cond, idx) in conditionals.iter().zip((0xc4..=0xfc).step_by(0x8)) {
+        set[idx] = InstMeta::new_argw(format!("C{} u16", cond));
+    }
+
+    // Rxx
+    set[0xc9] = InstMeta::new_no_args("RET");
+
+    for (cond, idx) in conditionals.iter().zip((0xc0..=0xf8).step_by(0x8)) {
+        set[idx] = InstMeta::new_argw(format!("R{} u16", cond));
+    }
+
+    // ------------------------------------------ IMMEDIATE
+
+    for (reg, idx) in reg_list.iter().zip((0x06..=0x3e).step_by(0x8)) {
+        set[idx] = InstMeta::new_arg0(format!("MVI {}", reg));
+    }
+
+    set[0xc6] = InstMeta::new_arg0("ADI u8");
+    set[0xce] = InstMeta::new_arg0("ACI u8");
+    set[0xd6] = InstMeta::new_arg0("SUI u8");
+    set[0xde] = InstMeta::new_arg0("SBI u8");
+    set[0xe6] = InstMeta::new_arg0("ANI u8");
+    set[0xee] = InstMeta::new_arg0("XRI u8");
+    set[0xf6] = InstMeta::new_arg0("ORI u8");
+    set[0xfe] = InstMeta::new_arg0("CPI u8");
+
+    // ------------------------------------------ ACCUMULATOR
+
+    let acc_insts: [&str; 8] = ["ADD", "ADC", "SUB", "SBB", "ANA", "XRA", "ORA", "CMP"];
+
+    for (lidx, inst) in acc_insts.iter().enumerate() {
+        for (ridx, reg) in reg_list.iter().enumerate() {
+            let idx = 0x80 + (lidx * reg_list.len()) + ridx;
+            set[idx] = InstMeta::new_no_args(format!("{} {}", inst, reg));
+        }
+    }
+
+    // ------------------------------------------ SPECIALS
+
+    set[0x27] = InstMeta::new_no_args("DAA");
+    set[0x2f] = InstMeta::new_no_args("CMA");
+    set[0x37] = InstMeta::new_no_args("STC");
+    set[0x3f] = InstMeta::new_no_args("CMC");
+    set[0xeb] = InstMeta::new_no_args("XCHG");
+
+    // ------------------------------------------ UNDOC-NOP
+
+    for idx in (0x08..=0x38).step_by(0x08) {
+        set[idx] = InstMeta::new_no_args("---");
+    }
+
+    set[0xcb] = InstMeta::new_no_args("---");
+    set[0xd9] = InstMeta::new_no_args("---");
+    set[0xdd] = InstMeta::new_no_args("---");
+    set[0xed] = InstMeta::new_no_args("---");
+    set[0xfd] = InstMeta::new_no_args("---");
+
+    // ------------------------------------------ CONTROL
+
+    set[0x00] = InstMeta::new_no_args("NOP");
+    set[0x76] = InstMeta::new_no_args("HLT");
+    set[0xf3] = InstMeta::new_no_args("DI");
+    set[0xfb] = InstMeta::new_no_args("EI");
+
+    // ------------------------------------------ LXI
+
+    set[0x01] = InstMeta::new_argw("LXI B u16");
+    set[0x11] = InstMeta::new_argw("LXI D u16");
+    set[0x21] = InstMeta::new_argw("LXI H u16");
+    set[0x31] = InstMeta::new_argw("LXI SP u16");
+
+    // ------------------------------------------ LOAD/STORE
+
+    set[0x0a] = InstMeta::new_no_args("LDAX B");
+    set[0x1a] = InstMeta::new_no_args("LDAX D");
+    set[0x2a] = InstMeta::new_argw("LHDL u16");
+    set[0x3a] = InstMeta::new_argw("LDA u16");
+
+    set[0x02] = InstMeta::new_no_args("STAX B");
+    set[0x12] = InstMeta::new_no_args("STAX D");
+    set[0x22] = InstMeta::new_argw("SHDL u16");
+    set[0x32] = InstMeta::new_argw("STA u16");
+
+    // ------------------------------------------ ROTATE
+
+    set[0x07] = InstMeta::new_no_args("RLD");
+    set[0x0f] = InstMeta::new_no_args("RRC");
+    set[0x17] = InstMeta::new_no_args("RAL");
+    set[0x1f] = InstMeta::new_no_args("RAR");
+
+    // ------------------------------------------ DAD
+
+    set[0x09] = InstMeta::new_arg0("DAD B");
+    set[0x19] = InstMeta::new_arg0("DAD D");
+    set[0x29] = InstMeta::new_arg0("DAD H");
+    set[0x39] = InstMeta::new_arg0("DAD SP");
+
+    // ------------------------------------------ INC
+
+    for (reg, idx) in reg_list.iter().zip((0x04..=0x3c).step_by(0x8)) {
+        set[idx] = InstMeta::new_arg0(format!("INR {}", reg));
+    }
+
+    set[0x03] = InstMeta::new_no_args("INX B");
+    set[0x13] = InstMeta::new_no_args("INX D");
+    set[0x23] = InstMeta::new_no_args("INX H");
+    set[0x33] = InstMeta::new_no_args("INX SP");
+
+    // ------------------------------------------ DEC
+
+    for (reg, idx) in reg_list.iter().zip((0x05..=0x3d).step_by(0x8)) {
+        set[idx] = InstMeta::new_arg0(format!("DCR {}", reg));
+    }
+
+    set[0x0b] = InstMeta::new_no_args("DCX B");
+    set[0x1b] = InstMeta::new_no_args("DCX D");
+    set[0x2b] = InstMeta::new_no_args("DCX H");
+    set[0x3b] = InstMeta::new_no_args("DCX SP");
+
+    // ------------------------------------------ STACK
+
+    set[0xc5] = InstMeta::new_no_args("PUSH B");
+    set[0xd5] = InstMeta::new_no_args("PUSH B");
+    set[0xe5] = InstMeta::new_no_args("PUSH B");
+    set[0xf5] = InstMeta::new_no_args("PUSH B");
+
+    set[0xc1] = InstMeta::new_no_args("POP B");
+    set[0xd1] = InstMeta::new_no_args("POP B");
+    set[0xe1] = InstMeta::new_no_args("POP B");
+    set[0xf1] = InstMeta::new_no_args("POP B");
+
+    set[0xe3] = InstMeta::new_no_args("XTHL");
+    set[0xf9] = InstMeta::new_no_args("SPHL");
+
+    // ------------------------------------------ IO
+
+    set[0xd3] = InstMeta::new_arg0("OUT");
+    set[0xdb] = InstMeta::new_arg0("IN");
+
+    // ------------------------------------------ RESTART
+
+    for (idx, inst_idx) in (0xc7..=0xff).step_by(0x8).enumerate() {
+        set[inst_idx] = InstMeta::new_no_args(format!("RST {}", idx));
+    }
+
+    // ------------------------------------------ SET CYCLES
+
+    for (idx, op) in set.iter_mut().enumerate() {
+        op.cycles = OPCODE_CYCLES[idx]
+    }
+
+    set
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn all_full() {
+        let inst_meta = i8080_instruction_meta();
+        for i in 0x00..=0xff {
+            println!("{:#04x} ({:#03}): {}", i, i, inst_meta[i as usize].name);
+            assert!(inst_meta[i as usize].name.len() > 0);
+            assert!(inst_meta[i as usize].cycles != 0);
+        }
+    }
+}
