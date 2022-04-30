@@ -1,9 +1,13 @@
+extern crate rand;
+
+use rand::Rng;
+
 use std::sync::mpsc::{Receiver, Sender};
 
-use crate::flags::Flags;
-use crate::instruction_meta::{self, InstMeta};
-use crate::memory::Memory;
-use crate::registers::Registers;
+use crate::op_meta::{OpMeta, I8080_OP_META};
+use crate::system::flags::Flags;
+use crate::system::memory::Memory;
+use crate::system::registers::Registers;
 use crate::util;
 
 use log::Level;
@@ -17,7 +21,6 @@ pub struct I8080 {
     halted: bool,
     interrupt_flip_flop: bool,
     interrupt_op_code: Option<u8>,
-    instruction_meta: [InstMeta; 0x100],
     rx_device: Option<Receiver<u8>>,
     tx_device: Option<Sender<u8>>,
     tx_eot_byte: u8,
@@ -37,7 +40,6 @@ impl I8080 {
             halted: false,
             interrupt_flip_flop: false,
             interrupt_op_code: None,
-            instruction_meta: instruction_meta::i8080_instruction_meta(),
             rx_device,
             tx_device,
             tx_eot_byte,
@@ -60,7 +62,7 @@ impl I8080 {
         } else {
             self.pc_inst()
         };
-        let meta: InstMeta = self.instruction_meta[inst as usize].clone();
+        let meta: OpMeta = I8080_OP_META[inst as usize];
         self.execute(inst);
         self.cycles += meta.cycles as u64;
         self.log_cycle(inst, meta, is_interrupt);
@@ -95,7 +97,7 @@ impl I8080 {
         self.memory.read_word(self.registers.pc + 1)
     }
 
-    fn fmt_instruction(&self, inst: u8, meta: InstMeta, is_interrupt: bool) -> String {
+    fn fmt_instruction(&self, inst: u8, meta: OpMeta, is_interrupt: bool) -> String {
         let mut inst_hex: String = format!("{:02x}", inst);
         let mut op: String = meta.op.to_owned();
         if meta.argb {
@@ -118,11 +120,17 @@ impl I8080 {
         }
     }
 
-    fn log_cycle(&self, inst: u8, meta: InstMeta, is_interrupt: bool) {
+    fn log_cycle(&self, inst: u8, meta: OpMeta, is_interrupt: bool) {
         if log_enabled!(Level::Debug) {
             debug!("{}", self.fmt_instruction(inst, meta, is_interrupt));
             self.log_components();
         }
+    }
+
+    pub(crate) fn randomize(&mut self) {
+        self.flags.from_byte(rand::thread_rng().gen());
+        self.registers.randomize();
+        self.memory.randomize();
     }
 }
 

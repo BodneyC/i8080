@@ -1,11 +1,13 @@
 use std::sync::mpsc::Receiver;
 
-/// I8080 to take an rx of one channel and a tx of another
-/// DeviceController to take the corresponding channel halves
+/// I8080 to take an rx of one channel and a tx of another DeviceController to take the
+/// corresponding channel halves
 ///
 /// out => tx.write(self.registers.a)
-/// in => self.registers.a = rx.read() // non-blocking?
+/// in => self.registers.a = rx.read()
 
+// I don't know another way to namespace some consts... maybe bad practice but who can really tell
+// these days
 pub mod special_chars {
     pub const EOT: u8 = 0x04;
     pub const ETB: u8 = 0x17;
@@ -17,14 +19,26 @@ pub mod special_chars {
 
 pub struct ConsoleDevice {
     rx: Receiver<u8>,
+    echo: bool,
 }
 
 impl ConsoleDevice {
-    pub fn new(rx: Receiver<u8>) -> Self {
-        Self { rx }
+    pub fn new(rx: Receiver<u8>, echo: bool) -> Self {
+        Self { rx, echo }
     }
 
     pub fn run(&self) -> Vec<u8> {
+        match self.echo {
+            true => self.run_echo(),
+            false => self.run_no_echo(),
+        }
+    }
+
+    fn run_echo(&self) -> Vec<u8> {
+        unimplemented!();
+    }
+
+    fn run_no_echo(&self) -> Vec<u8> {
         let mut buf: Vec<u8> = vec![];
         let mut idx: usize = 0;
         loop {
@@ -100,7 +114,7 @@ mod tests {
 
         assert!(err.is_none(), "{:?}", err.unwrap());
 
-        let console = ConsoleDevice { rx };
+        let console = ConsoleDevice { rx, echo: false };
 
         assert_eq!(act, String::from_utf8_lossy(&(console.run())));
     }
@@ -124,7 +138,7 @@ mod tests {
 
         assert!(err.is_none(), "{:?}", err.unwrap());
 
-        let console = ConsoleDevice { rx };
+        let console = ConsoleDevice { rx, echo: false };
 
         assert_eq!(act, String::from_utf8_lossy(&(console.run())));
     }
@@ -149,7 +163,7 @@ mod tests {
 
         assert!(err.is_none(), "{:?}", err.unwrap());
 
-        let console = ConsoleDevice { rx };
+        let console = ConsoleDevice { rx, echo: false };
 
         assert_eq!(exp, String::from_utf8_lossy(&(console.run())));
     }
@@ -173,7 +187,7 @@ mod tests {
 
         assert!(err.is_none(), "{:?}", err.unwrap());
 
-        let console = ConsoleDevice { rx };
+        let console = ConsoleDevice { rx, echo: false };
 
         assert_eq!("Hellscape", String::from_utf8_lossy(&(console.run())));
     }

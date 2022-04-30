@@ -1,7 +1,7 @@
 use super::*;
 
 impl I8080 {
-    pub fn execute(&mut self, inst: u8) {
+    pub(crate) fn execute(&mut self, inst: u8) {
         match inst {
             // ------------------------------------------ SPECIALS
             0x27 => self.daa(),
@@ -559,8 +559,8 @@ impl I8080 {
     ///
     /// - val: Value to push onto the stack
     fn push(&mut self, val: u16) {
-        self.registers.sp -= 2;
-        self.memory.write_word(self.registers.sp, val);
+        self.registers.sp = self.registers.sp.wrapping_sub(2);
+        self.memory.write_word_big_endian(self.registers.sp, val);
     }
 
     /// Pop a value from the stack
@@ -572,7 +572,7 @@ impl I8080 {
     ///
     /// - val: Value to push onto the stack
     fn pop(&mut self) -> u16 {
-        let result = self.memory.read_word(self.registers.sp);
+        let result = self.memory.read_word_big_endian(self.registers.sp);
         self.registers.sp += 2;
         result
     }
@@ -596,13 +596,10 @@ impl I8080 {
 
     /// Exchange the value pointed to by the stack pointer with the value of
     /// the HL register
-    ///
-    /// This implementation relies upon the "wrong" ordering of value on the
-    /// stack
     fn xthl(&mut self) {
-        let indirect: u16 = self.memory.read_word(self.registers.sp);
+        let indirect: u16 = self.memory.read_word_big_endian(self.registers.sp);
         self.memory
-            .write_word(self.registers.sp, self.registers.get_hl());
+            .write_word_big_endian(self.registers.sp, self.registers.get_hl());
         self.registers.set_hl(indirect);
     }
 
@@ -661,6 +658,7 @@ impl I8080 {
         self.flags.carry = carry;
     }
 
+    /// Double add, adds a word (a double) to HL
     fn dad(&mut self, val: u16) {
         let hl: u16 = self.registers.get_hl();
         self.flags.carry = hl > (0xffff - val);
@@ -699,5 +697,38 @@ impl I8080 {
             self.registers.a >> 1
         };
         self.flags.carry = carry;
+    }
+}
+
+// TODO: Just a shit tonne of tests...
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pop_and_push() {
+        let mut i8080 = I8080::new(None, None, 0x00);
+        i8080.load(
+            0x00,
+            vec![
+                0x31, 0xff, 0xff, // LXI SP 0x00
+                0x01, 0xde, 0xad, // LXI B 0xdead
+                0xc5, // PUSH B
+                0xd1, // POP D
+            ],
+        );
+        i8080.cycle(); // LXI SP 0x00
+        i8080.cycle(); // LXI B 0xdead
+        assert_eq!(i8080.registers.get_bc(), 0xdead, "BC is 0xdead");
+        i8080.cycle(); // PUSH B
+        assert_eq!(i8080.registers.sp, 0xfffd, "SP is initial value - 2");
+        assert_eq!(
+            i8080.memory.read_word_big_endian(i8080.registers.sp),
+            0xdead,
+            "[SP] is 0xdead"
+        );
+        i8080.cycle(); // POP D
+        assert_eq!(i8080.registers.sp, 0xffff, "SP is initial value");
+        assert_eq!(i8080.registers.get_de(), 0xdead, "DE is 0xdead");
     }
 }

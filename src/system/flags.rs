@@ -14,16 +14,16 @@ impl Flags {
         Default::default()
     }
 
-    pub fn debug_line(&self) -> String {
-        format!(
-            "S[{}] Z[{}] AC[{}] P[{}] C[{}]",
-            self.sign as u8,
-            self.zero as u8,
-            self.aux_carry as u8,
-            self.parity as u8,
-            self.carry as u8,
-        )
-    }
+    // pub fn debug_line(&self) -> String {
+    //     format!(
+    //         "S[{}] Z[{}] AC[{}] P[{}] C[{}]",
+    //         self.sign as u8,
+    //         self.zero as u8,
+    //         self.aux_carry as u8,
+    //         self.parity as u8,
+    //         self.carry as u8,
+    //     )
+    // }
 
     pub fn to_byte(&self) -> u8 {
         (self.sign as u8) << 7
