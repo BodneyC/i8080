@@ -2,8 +2,6 @@ extern crate rand;
 
 use rand::Rng;
 
-use std::sync::mpsc::{Receiver, Sender};
-
 use crate::op_meta::{OpMeta, I8080_OP_META};
 use crate::system::flags::Flags;
 use crate::system::memory::Memory;
@@ -11,6 +9,8 @@ use crate::system::registers::Registers;
 use crate::util;
 
 use log::Level;
+
+use crate::system::device::{RxDevice, TxDevice};
 
 pub struct I8080 {
     registers: Registers,
@@ -21,17 +21,12 @@ pub struct I8080 {
     halted: bool,
     interrupt_flip_flop: bool,
     interrupt_op_code: Option<u8>,
-    rx_device: Option<Receiver<u8>>,
-    tx_device: Option<Sender<u8>>,
-    tx_eot_byte: u8,
+    rx_devices: Vec<RxDevice>,
+    tx_devices: Vec<TxDevice>,
 }
 
 impl I8080 {
-    pub fn new(
-        rx_device: Option<Receiver<u8>>,
-        tx_device: Option<Sender<u8>>,
-        tx_eot_byte: u8,
-    ) -> Self {
+    pub fn new(rx_devices: Vec<RxDevice>, tx_devices: Vec<TxDevice>) -> Self {
         Self {
             registers: Registers::new(),
             memory: Memory::new(),
@@ -40,9 +35,8 @@ impl I8080 {
             halted: false,
             interrupt_flip_flop: false,
             interrupt_op_code: None,
-            rx_device,
-            tx_device,
-            tx_eot_byte,
+            rx_devices,
+            tx_devices,
         }
     }
 

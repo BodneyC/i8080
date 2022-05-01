@@ -365,8 +365,8 @@ impl I8080 {
             0xf9 => self.registers.sp = self.registers.get_hl(), // SPHL
 
             // ------------------------------------------ IO
-            0xd3 => self.dev_out(self.registers.a),
-            0xdb => self.registers.a = self.dev_in(),
+            0xd3 => self.dev_out(self.pc_argb() as usize, self.registers.a),
+            0xdb => self.registers.a = self.dev_in(self.pc_argb() as usize),
 
             // ------------------------------------------ RESET
             0xc7 => self.call(0x00, None),
@@ -380,16 +380,16 @@ impl I8080 {
         };
     }
 
-    /// Writes a byte (usually A) to the out-device
+    /// Writes a byte (usually A) to the specified out-device
     ///
-    /// If no in-device exists, nothing is written
+    /// If no such in-device exists, nothing is written
     ///
     /// # Arguments
     ///
     /// - val: Value to pass to the out-device
-    pub fn dev_out(&self, val: u8) {
-        if let Some(tx) = &self.tx_device {
-            if let Err(err) = tx.send(val) {
+    pub fn dev_out(&self, device: usize, val: u8) {
+        if self.tx_devices.len() > device {
+            if let Err(err) = self.tx_devices[device].tx.send(val) {
                 debug!("error transmitting {} OUT: {:?}", val, err);
             }
         } else {
@@ -397,12 +397,12 @@ impl I8080 {
         }
     }
 
-    /// Read a byte from the in-device and writes it to A
+    /// Read a byte from the specified in-device and writes it to A
     ///
-    /// If no in-device exists, will read all ones, i.e. 0xff
-    fn dev_in(&self) -> u8 {
-        if let Some(rx) = &self.rx_device {
-            if let Ok(val) = rx.try_recv() {
+    /// If no such in-device exists, will read all ones, i.e. 0xff
+    fn dev_in(&self, device: usize) -> u8 {
+        if self.rx_devices.len() > device {
+            if let Ok(val) = self.rx_devices[device].rx.try_recv() {
                 return val;
             } else {
                 debug!("nothing received IN");
@@ -415,12 +415,14 @@ impl I8080 {
 
     /// Halts the CPU at the end of the current cycle (if using `i8080::run`)
     ///
-    /// Though not true to the CPU, sends an end of transmission byte to the out-device.
+    /// Though not true to the CPU, sends an end of transmission byte to all out-devices.
     /// This allows the program to end and is akin to a shutdown signal I suppose...
     /// kinda
     pub fn halt(&mut self) {
         self.halted = true;
-        self.dev_out(self.tx_eot_byte);
+        for (idx, device) in self.tx_devices.iter().enumerate() {
+            self.dev_out(idx, device.eot_byte);
+        }
     }
 
     /// Adds a value to the A register
@@ -707,7 +709,7 @@ mod tests {
 
     #[test]
     fn pop_and_push() {
-        let mut i8080 = I8080::new(None, None, 0x00);
+        let mut i8080 = I8080::new(vec![], vec![]);
         i8080.load(
             0x00,
             vec![
