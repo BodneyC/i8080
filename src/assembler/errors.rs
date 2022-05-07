@@ -2,11 +2,13 @@ use std::{fmt, io};
 
 use crate::assembler::label::Label;
 
+use super::expressions::errors::ExpressionError;
+
 #[derive(Debug)]
 pub enum AssemblerError {
     FileReadError(io::Error),
     ParserError(ParserError),
-    GenerationError(GenerationError),
+    CodeGenError(CodeGenError),
 }
 
 impl std::error::Error for AssemblerError {}
@@ -16,20 +18,35 @@ impl fmt::Display for AssemblerError {
         match self {
             Self::FileReadError(e) => write!(f, "failed to open file for read: {:?}", e),
             Self::ParserError(_) => write!(f, "error occured in parsing"),
-            Self::GenerationError(_) => write!(f, "error occured in byte generation"),
+            Self::CodeGenError(_) => write!(f, "error occured in byte generation"),
         }
+    }
+}
+
+impl From<ParserError> for AssemblerError {
+    fn from(e: ParserError) -> Self {
+        AssemblerError::ParserError(e)
+    }
+}
+
+impl From<CodeGenError> for AssemblerError {
+    fn from(e: CodeGenError) -> Self {
+        AssemblerError::CodeGenError(e)
     }
 }
 
 /// The ParserError should only be logged to the user
 #[derive(Debug)]
 pub enum ParserError {
+    ExpressionError(ExpressionError),
+
     NoArgsForVariadic,
     WrongNumberOfArgs(usize, usize),
     OperationRequiresLabel(String),
 
     InvalidExpression,
-    InvalidSyntax(&'static str),
+    UnterminatedString(String),
+    InvalidLabel(String),
 
     NoSuchLabel,
     LabelAlreadyDefined(String, Label),
@@ -40,6 +57,7 @@ pub enum ParserError {
     DefineInMacro,
     NotInMacro,
     NestedMacro,
+    MacroCallInMacroUsesSp,
     MacroUseBeforeCreation,
     RecursiveMacro,
     NoEndMacro,
@@ -56,6 +74,8 @@ impl std::error::Error for ParserError {}
 impl fmt::Display for ParserError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            Self::ExpressionError(e) => write!(f, "expression evaluation error: {:?}", e),
+
             Self::NoArgsForVariadic => write!(f, "no arguments given for variadic instruction"),
             Self::WrongNumberOfArgs(req, rec) => write!(
                 f,
@@ -65,7 +85,8 @@ impl fmt::Display for ParserError {
             Self::OperationRequiresLabel(s) => write!(f, "operation ({}) required label", s),
 
             Self::InvalidExpression => write!(f, ""),
-            Self::InvalidSyntax(s) => write!(f, "invalid syntax: {}", s),
+            Self::UnterminatedString(s) => write!(f, "unterminated string: '{}'", s),
+            Self::InvalidLabel(s) => write!(f, "invalid label: '{}'", s),
 
             Self::NoSuchLabel => write!(f, ""),
             Self::LabelAlreadyDefined(s, l) => {
@@ -78,6 +99,10 @@ impl fmt::Display for ParserError {
             Self::DefineInMacro => write!(f, "cannot define (DB DW DB) in macro"),
             Self::NotInMacro => write!(f, "ENDM found before MACRO"),
             Self::NestedMacro => write!(f, "nested MACRO not permitted"),
+            Self::MacroCallInMacroUsesSp => write!(
+                f,
+                "use of a macro which uses SP ('$') inside another macro is not permitted"
+            ),
             Self::MacroUseBeforeCreation => write!(f, "macro used before its definition"),
             Self::RecursiveMacro => write!(f, "use of macro from within macro definition"),
             Self::NoEndMacro => write!(f, "no ENDM found"),
@@ -91,19 +116,25 @@ impl fmt::Display for ParserError {
     }
 }
 
+impl From<ExpressionError> for ParserError {
+    fn from(e: ExpressionError) -> Self {
+        ParserError::ExpressionError(e)
+    }
+}
+
 #[derive(Debug)]
-pub enum GenerationError {
-    ExpressionError(ParserError),
+pub enum CodeGenError {
+    ParserError(ParserError),
     UnexpectedLength(usize, usize),
 }
 
-impl std::error::Error for GenerationError {}
+impl std::error::Error for CodeGenError {}
 
-impl fmt::Display for GenerationError {
+impl fmt::Display for CodeGenError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            GenerationError::ExpressionError(e) => write!(f, "expression error: {}", e),
-            GenerationError::UnexpectedLength(exp, act) => write!(
+            CodeGenError::ParserError(e) => write!(f, "expression error: {}", e),
+            CodeGenError::UnexpectedLength(exp, act) => write!(
                 f,
                 "byte length generate ({}) differs from expected ({})",
                 act, exp,
@@ -111,6 +142,19 @@ impl fmt::Display for GenerationError {
         }
     }
 }
+
+impl From<ParserError> for CodeGenError {
+    fn from(e: ParserError) -> Self {
+        CodeGenError::ParserError(e)
+    }
+}
+
+impl From<ExpressionError> for CodeGenError {
+    fn from(e: ExpressionError) -> Self {
+        CodeGenError::ParserError(ParserError::ExpressionError(e))
+    }
+}
+
 
 #[derive(Debug)]
 pub enum OpParseError {

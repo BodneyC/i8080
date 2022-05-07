@@ -1,73 +1,23 @@
 use std::borrow::Borrow;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::fs::{self, File};
-use std::io::{self, BufRead};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+use std::{fs, io};
 
-// use crate::assembler::find_op_code;
-use crate::errors::{AssemblerError, GenerationError, OpParseError, ParserError};
 use crate::op_meta::I8080_OP_META;
 
-use super::find_op_code;
+use super::errors::{AssemblerError, CodeGenError, ParserError};
+use super::expressions::parser::{parse_expression, ExprOutput};
 use super::label::Label;
-
-#[derive(Debug, Clone)]
-pub struct LineMeta {
-    raw_line: String,
-    line_no: usize,
-    comment: Option<String>,
-    inst: Option<String>,
-    args_list: Vec<String>,
-    label: Option<String>,
-    op_code: Option<u8>,
-    label_only: bool,
-    address: u16,
-    width: usize,
-}
-
-impl Default for LineMeta {
-    fn default() -> Self {
-        Self {
-            raw_line: String::new(),
-            line_no: 0,
-            comment: None,
-            inst: None,
-            args_list: vec![],
-            label: None,
-            op_code: None,
-            label_only: false,
-            address: 0,
-            width: 0,
-        }
-    }
-}
-
-impl LineMeta {
-    fn erroring(line: &LineMeta) -> Self {
-        trace!("@{} | {}", line.line_no, line.raw_line);
-        Self {
-            line_no: line.line_no,
-            raw_line: line.raw_line.to_string(),
-            ..Default::default()
-        }
-    }
-
-    fn label_only(label: Option<String>, raw_line: String) -> Self {
-        Self {
-            label,
-            raw_line,
-            label_only: true,
-            ..Default::default()
-        }
-    }
-}
+use super::tokenizer::{self, LineMeta};
+use super::{find_op_code, util};
 
 #[derive(Debug)]
 pub struct Macro {
     lines: Vec<LineMeta>,
     bytes: Vec<u8>,
     width: usize,
+    uses_pc: bool,
 }
 
 impl Macro {
@@ -76,6 +26,7 @@ impl Macro {
             lines: Vec::new(),
             bytes: Vec::new(),
             width: 0,
+            uses_pc: false,
         }
     }
 }
@@ -108,11 +59,11 @@ impl Assembler {
             })
             .and_then(|_| {
                 self.generate_macros()
-                    .map_err(|e| AssemblerError::GenerationError(e))
+                    .map_err(|e| AssemblerError::CodeGenError(e))
             })
             .and_then(|_| {
-                self.generate_bytes()
-                    .map_err(|e| AssemblerError::GenerationError(e))
+                self.generate_prog()
+                    .map_err(|e| AssemblerError::CodeGenError(e))
             })
             .map_err(|e| {
                 match e.borrow() {
@@ -129,35 +80,216 @@ impl Assembler {
             })
     }
 
-    /// Fill the macros with useful bytes...
+    /// Fill the macros with useful bytes
     ///
-    /// Resolve expressions in here
-    fn generate_macros(&mut self) -> Result<(), GenerationError> {
+    /// The only unknown in epxression resolution is PC ($), if this is found in any expression,
+    /// the lines and the macro are marked as `uses_pc`
+    ///
+    /// When the real code comes to load in the macro, they should check if this flag is set and
+    /// regenerate the macro code specific to that call
+    fn generate_macros(&mut self) -> Result<(), CodeGenError> {
         for (_, _macro) in self.macros.borrow_mut().iter_mut() {
-            for line in _macro.lines.iter() {
-                match self.bytes_for_line(line) {
-                    Ok(mut bytes) => {
+            for line in _macro.lines.iter_mut() {
+                match self.gen_bytes_for_line(line, line.address, true) {
+                    Ok((mut bytes, uses_pc)) => {
                         if bytes.len() != line.width {
-                            return Err(GenerationError::UnexpectedLength(line.width, bytes.len()));
+                            return Err(CodeGenError::UnexpectedLength(line.width, bytes.len()));
+                        }
+                        if uses_pc {
+                            line.uses_pc = true;
                         }
                         _macro.bytes.append(&mut bytes);
                     }
-                    Err(e) => return Err(GenerationError::ExpressionError(e)),
+                    Err(e) => {
+                        self.erroring_line = Some(LineMeta::erroring(line));
+                        return Err(e);
+                    }
+                }
+                if line.uses_pc {
+                    _macro.uses_pc = true;
                 }
             }
         }
         Ok(())
     }
 
-    fn bytes_for_line(&self, line: &LineMeta) -> Result<Vec<u8>, ParserError> {
-        todo!();
+    fn gen_for_macro_in_place(&self, _macro: &Macro, addr: u16) -> Result<Vec<u8>, CodeGenError> {
+        let mut bytes: Vec<u8> = Vec::new();
+        for line in _macro.lines.iter() {
+            let (mut _bytes, _) = self.gen_bytes_for_line(line, line.address + addr, true)?;
+            bytes.append(&mut _bytes);
+        }
+        Ok(bytes)
+    }
+
+    fn gen_bytes_for_instruction(
+        &self,
+        line: &LineMeta,
+        address: u16,
+    ) -> Result<(Vec<u8>, bool), CodeGenError> {
+        let mut uses_pc = false;
+        let mut parsed_exprs: Vec<ExprOutput> = Vec::new();
+        for arg in line.args_list.iter() {
+            let (v, flags) = parse_expression(arg, address, &self.labels)?;
+            parsed_exprs.push((v, flags));
+            if flags.pc {
+                uses_pc = true;
+            }
+        }
+        debug!(
+            "@{:<03} parsed args ({}): {:?}",
+            line.line_no,
+            parsed_exprs.len(),
+            parsed_exprs,
+        );
+        match line.inst.as_ref().unwrap().as_str() {
+            "DB" => {
+                let mut bytes: Vec<u8> = vec![];
+                for (expr, flags) in parsed_exprs.iter() {
+                    if flags.string {
+                        for byte in expr {
+                            bytes.push(*byte);
+                        }
+                    } else {
+                        bytes.push(expr[0]);
+                    }
+                }
+                debug!("@{:<03} DB generated {} bytes", line.line_no, bytes.len());
+                trace!("@{:<03} {:?}", line.line_no, bytes);
+                Ok((bytes, uses_pc))
+            }
+            "DW" => {
+                let mut bytes: Vec<u8> = vec![];
+                for (expr, _) in parsed_exprs.iter() {
+                    let pair = util::vec_u8_to_u16(expr);
+                    bytes.push(pair as u8);
+                    bytes.push((pair >> 8) as u8);
+                }
+                debug!("@{:<03} DW generated {} bytes", line.line_no, bytes.len());
+                trace!("@{:<03} {:?}", line.line_no, bytes);
+                Ok((bytes, uses_pc))
+            }
+            "DS" => {
+                let len = util::vec_u8_to_u16(&parsed_exprs[0].0);
+                let bytes: Vec<u8> = vec![0; len as usize];
+                debug!("@{:<03} DS {} bytes", line.line_no, bytes.len());
+                Ok((bytes, uses_pc))
+            }
+            name => {
+                // We know the number of args is correct so we don't care "which" it is
+                let sp = parsed_exprs.iter().any(|e| e.1.sp);
+                let psw = parsed_exprs.iter().any(|e| e.1.psw);
+                let arg0 = if parsed_exprs.len() > 0 {
+                    util::vec_u8_to_u16(&parsed_exprs[0].0)
+                } else {
+                    0
+                };
+                let arg1 = if parsed_exprs.len() > 1 {
+                    util::vec_u8_to_u16(&parsed_exprs[1].0)
+                } else {
+                    0
+                };
+                trace!(
+                    "@{:<03} {} {{ args: {:?}, nargs: {}, sp: {}, psw: {} }}",
+                    line.line_no,
+                    name,
+                    line.args_list,
+                    parsed_exprs.len(),
+                    sp,
+                    psw
+                );
+                match find_op_code::from_args_and_sp_psw(name, arg0, arg1, sp, psw) {
+                    Ok(code) => {
+                        debug!("@{:<03} {} op code {}", line.line_no, name, code);
+                        let mut bytes: Vec<u8> = vec![code as u8; 1];
+                        for (expr, _) in parsed_exprs.iter() {
+                            let mut arg_bytes = expr.clone();
+                            bytes.append(&mut arg_bytes);
+                        }
+                        trace!("@{:<03} {:?}", line.line_no, bytes);
+                        return Ok((bytes, uses_pc));
+                    }
+                    Err(e) => {
+                        debug!("@{:<03} {} unable to find op", line.line_no, name);
+                        return Err(CodeGenError::ParserError(ParserError::NoInstructionFound(
+                            e,
+                        )));
+                    }
+                }
+            }
+        }
+    }
+
+    fn gen_bytes_for_macro_call(
+        &self,
+        line: &LineMeta,
+        address: u16,
+        for_macro: bool,
+    ) -> Result<(Vec<u8>, bool), CodeGenError> {
+        let macros = self.macros.borrow();
+        let macro_name = line.inst.as_ref().unwrap();
+        let _macro = macros.get(macro_name).unwrap();
+        if _macro.uses_pc {
+            trace!("@{:<03} {} macro uses PC ($)", line.line_no, macro_name);
+            if for_macro {
+                debug!(
+                    "@{:<03} macro called inside macro uses PC ($)",
+                    line.line_no
+                );
+                Err(CodeGenError::ParserError(
+                    ParserError::MacroCallInMacroUsesSp,
+                ))
+            } else {
+                match self.gen_for_macro_in_place(_macro, address) {
+                    Ok(bytes) => Ok((bytes, _macro.uses_pc)),
+                    Err(e) => Err(e),
+                }
+            }
+        } else {
+            trace!(
+                "@{:<03} {} macro doesn't use PC ($)",
+                line.line_no,
+                macro_name
+            );
+            Ok((_macro.bytes.clone(), _macro.uses_pc))
+        }
+    }
+
+    fn gen_bytes_for_line(
+        &self,
+        line: &LineMeta,
+        address: u16,
+        for_macro: bool,
+    ) -> Result<(Vec<u8>, bool), CodeGenError> {
+        trace!("generating code for line {}", line.line_no);
+        if let Some(_) = line.op_code {
+            self.gen_bytes_for_instruction(line, address)
+        } else {
+            self.gen_bytes_for_macro_call(line, address, for_macro)
+        }
     }
 
     /// Because of the ORIG instruction, we preallocate the vec so cannot `.append` and must instead
     /// `[line.address]` into it
-    fn generate_bytes(&mut self) -> Result<Vec<u8>, GenerationError> {
-        let bytes = vec![0; self.highest_address as usize];
-        todo!();
+    fn generate_prog(&mut self) -> Result<Vec<u8>, CodeGenError> {
+        // self.expression_parser.lexer.labels = self.labels.clone();
+        let mut bytes = vec![0; self.highest_address as usize];
+        for line in self.lines.borrow().iter() {
+            match self.gen_bytes_for_line(line, line.address, false) {
+                Ok((line_bytes, _)) => {
+                    if line_bytes.len() != line.width {
+                        return Err(CodeGenError::UnexpectedLength(line.width, bytes.len()));
+                    }
+                    for (idx, byte) in line_bytes.iter().enumerate() {
+                        bytes[line.address as usize + idx] = *byte;
+                    }
+                }
+                Err(e) => {
+                    return Err(e);
+                }
+            }
+        }
+        Ok(bytes)
     }
 
     /// Holy shit, this does a lot. And might be the single worst function I've ever written...
@@ -201,6 +333,7 @@ impl Assembler {
         let mut skip_in_true_if: bool = false;
 
         let mut address: u16 = 0;
+        let mut macro_address: u16 = 0;
         let mut highest_address: u16 = 0;
 
         for line in lines.iter() {
@@ -213,10 +346,8 @@ impl Assembler {
                             self.erroring_line = Some(LineMeta::erroring(&line));
                             return Err(ParserError::NestedIf);
                         }
-                        let cond = match self.parse_expression_u16(line.args_list[0].to_string()) {
-                            Ok(cond) => cond > 0,
-                            Err(e) => return Err(e),
-                        };
+                        let first_arg = line.args_list[0].to_string();
+                        let cond = self.parse_expr_u16(first_arg, address)? > 0;
                         debug!("@{:<03} IF condition is {}", line.line_no, cond);
                         inside_if = true;
                         skip_in_true_if = !cond;
@@ -266,7 +397,7 @@ impl Assembler {
                         // We're checking the use of EQ multiple times above
                         "SET" | "EQ" => {
                             let arg = line.args_list[0].to_string();
-                            let val = match self.parse_expression_u16(arg) {
+                            let val = match self.parse_expr_u16(arg, address) {
                                 Ok(cond) => cond,
                                 Err(e) => return Err(e),
                             };
@@ -338,6 +469,7 @@ impl Assembler {
                     }
                     debug!("@{:<03} ENDM reached", line.line_no);
                     current_macro_name = None;
+                    macro_address = 0;
                     continue;
                 }
                 "ORIG" => {
@@ -347,7 +479,7 @@ impl Assembler {
                         return Err(ParserError::NotInMacro);
                     }
                     let arg = &line.args_list[0];
-                    let new_address = match self.parse_expression_u16(arg.to_string()) {
+                    let new_address = match self.parse_expr_u16(arg.to_string(), address) {
                         Ok(cond) => cond,
                         Err(e) => {
                             debug!("@{:<03} invalid expr '{}'", line.line_no, arg);
@@ -396,22 +528,11 @@ impl Assembler {
                         self.erroring_line = Some(LineMeta::erroring(&line));
                         return Err(ParserError::NoArgsForVariadic);
                     } else {
-                        match self.width_of_vararg(inst_name.to_string(), &line.args_list) {
-                            Ok(_width) => {
-                                debug!(
-                                    "@{:<03} vararg {:?} of length {} (args: {:?})",
-                                    line.line_no, line.inst, _width, line.args_list,
-                                );
-                                width = _width
-                            }
-                            Err(e) => {
-                                debug!(
-                                    "@{:<03} vararg {:?} unable to calculate width (args: {:?})",
-                                    line.line_no, line.inst, line.args_list,
-                                );
-                                return Err(e);
-                            }
-                        }
+                        debug!(
+                            "@{:<03} vararg {:?} with args ({:?})",
+                            line.line_no, line.inst, line.args_list,
+                        );
+                        width = self.width_of_vararg(inst_name.to_string(), &line.args_list)?;
                     }
                 } else {
                     // Check set args has correct #args
@@ -426,16 +547,18 @@ impl Assembler {
                             line.args_list.len(),
                         ));
                     } else {
-                        let _width = inst_meta.width();
                         debug!(
                             "@{:<03} {:?} with {} (args: {:?})",
-                            line.line_no, line.inst, _width, line.args_list,
+                            line.line_no,
+                            line.inst,
+                            inst_meta.width(),
+                            line.args_list,
                         );
-                        width = _width;
+                        width = inst_meta.width();
                     }
                 }
             } else {
-                debug!("@{:<03} {:?} should be a macro", line.line_no, line.inst,);
+                debug!("@{:<03} {:?} should be a macro", line.line_no, line.inst);
 
                 // The only other thing it could be is a macro which should take no arguments
                 if line.args_list.len() != 0 {
@@ -474,7 +597,6 @@ impl Assembler {
             }
 
             let mut new_line = line.clone();
-            new_line.address = address;
             new_line.width = width;
 
             if let Some(name) = current_macro_name {
@@ -493,14 +615,26 @@ impl Assembler {
                     self.erroring_line = Some(LineMeta::erroring(&line));
                     return Err(ParserError::IfAndMacroMix);
                 }
+
+                new_line.address = macro_address;
+
                 debug!(
                     "@{:<03} adding {} to '{}' macro width",
                     line.line_no, width, name
                 );
                 let m = macros.get_mut(name).unwrap();
                 m.width += width;
-                m.lines.push(new_line)
+                m.lines.push(new_line);
+
+                macro_address += width as u16;
+                trace!(
+                    "@{:<03}+1 new macro ({}) address: {}",
+                    line.line_no,
+                    name,
+                    address
+                );
             } else {
+                new_line.address = address;
                 debug!("@{:<03} adding to resolved lines", line.line_no);
                 resolved_lines.push(new_line);
                 // Address doesn't need updating in a macro
@@ -518,48 +652,37 @@ impl Assembler {
 
         if inside_if {
             debug!("@EOF IFs without ENDIF");
-            return Err(ParserError::NoEndIf);
-        }
-
-        if let Some(name) = current_macro_name {
+            Err(ParserError::NoEndIf)
+        } else if let Some(name) = current_macro_name {
             debug!("@EOF MACRO '{}' without ENDM", name);
-            return Err(ParserError::NoEndMacro);
+            Err(ParserError::NoEndMacro)
+        } else {
+            self.macros = RefCell::new(macros);
+
+            self.lines = RefCell::new(resolved_lines);
+            self.highest_address = highest_address;
+
+            Ok(())
         }
-
-        // // Create space for the macros
-        // for (_, v) in macros.iter_mut() {
-        //     v.bytes = vec![0; v.width];
-        // }
-
-        self.macros = RefCell::new(macros);
-        self.lines = RefCell::new(resolved_lines);
-        self.highest_address = highest_address;
-
-        Ok(())
     }
 
     pub fn write_file(&self, output: PathBuf, bytes: Vec<u8>) -> Result<(), io::Error> {
         fs::write(output, &bytes)
     }
 
-    fn parse_expression_u16(&self, exp: String) -> Result<u16, ParserError> {
-        match self.parse_expression(&exp) {
-            Ok(mut bytes) => {
-                if bytes.len() > 2 {
-                    // This is a bit debatable and would mean that ORIG 'hello'
-                    debug!("expression '{}' result longer than u16: {:?}", exp, bytes);
-                } else if bytes.len() < 2 {
-                    bytes.push(0x00);
-                }
-                Ok(bytes[0] as u16 | (bytes[1] as u16) << 8)
-            }
-            Err(e) => Err(e),
+    fn parse_expr_u16(&self, exp: String, addr: u16) -> Result<u16, ParserError> {
+        let bytes = self.parse_expr(&exp, addr)?;
+        if bytes.len() > 2 {
+            // This is a bit debatable and would mean that ORIG 'hello'
+            debug!("expression '{}' result longer than u16: {:?}", exp, bytes);
         }
+        Ok(util::vec_u8_to_u16(&bytes))
     }
 
     /// Parses any expression to be used as an argument
-    fn parse_expression<S: Into<String>>(&self, exp: S) -> Result<Vec<u8>, ParserError> {
-        todo!();
+    fn parse_expr<S: Into<String>>(&self, exp: S, addr: u16) -> Result<Vec<u8>, ParserError> {
+        let (bytes, _) = parse_expression(exp, addr, &self.labels)?;
+        Ok(bytes)
     }
 
     ///// The DB instruction can be given in a few forms:
@@ -625,21 +748,15 @@ impl Assembler {
 
     fn parse_file(&mut self, input: PathBuf) -> Result<Vec<LineMeta>, AssemblerError> {
         let mut line_vec: Vec<LineMeta> = vec![];
-        match read_lines(input) {
+        match util::read_lines(input) {
             Ok(lines) => {
                 for (line_no, line_res) in lines.enumerate() {
                     if let Ok(line) = line_res {
-                        match self.tokenize(&line) {
-                            Ok(line_opt) => {
-                                if let Some(mut line_meta) = line_opt {
-                                    line_meta.line_no = line_no;
-                                    line_vec.push(line_meta);
-                                }
-                            }
-                            Err(e) => {
-                                return Err(AssemblerError::ParserError(e));
-                            }
-                        };
+                        let line_opt = tokenizer::tokenize(&line)?;
+                        if let Some(mut line_meta) = line_opt {
+                            line_meta.line_no = line_no;
+                            line_vec.push(line_meta);
+                        }
                     }
                 }
                 // self.all_lines = line_vec;
@@ -647,115 +764,6 @@ impl Assembler {
             }
             Err(e) => Err(AssemblerError::FileReadError(e)),
         }
-    }
-
-    // A more robust system wouldn't be a bad idea, but as the syntax is fairly simple might as
-    // well do it fairly simply
-    fn tokenize(&mut self, raw_line: &String) -> Result<Option<LineMeta>, ParserError> {
-        let mut line = raw_line.trim();
-        let mut comment: Option<String> = None;
-        // Check for a comment in the line
-        if let Some(comment_idx) = line.find(";") {
-            if line.len() > comment_idx {
-                comment = Some(line[comment_idx + 1..].trim().to_string());
-            }
-            line = line[..comment_idx].trim();
-        }
-
-        // If no line remains, tokenize is still successful, but no LineMeta is returned
-        if line.len() == 0 {
-            return Ok(None);
-        }
-
-        let mut label: Option<String> = None;
-        // Check if some label precedes the instruction
-        if let Some(label_idx) = line.find(":") {
-            label = Some(line[..label_idx].trim().to_string());
-            if line.len() > label_idx {
-                line = line[label_idx + 1..].trim();
-            } else {
-                line = "";
-            }
-        }
-
-        // If no line remains, line is just a marker for a label
-        if line.len() == 0 {
-            return Ok(Some(LineMeta::label_only(label, raw_line.to_string())));
-        }
-        let mut raw_args: Option<String> = None;
-        // Look for the space between instruction and args
-        if let Some(args_idx) = line.find(" ") {
-            // No bounds check here as we trim before
-            raw_args = Some(line[args_idx + 1..].trim().to_string());
-            line = line[..args_idx].trim();
-        }
-
-        let mut args_list: Vec<String> = vec![];
-        // If any args exists...
-        if let Some(args) = raw_args {
-            let mut in_quotes: bool = false;
-            let mut char_escaped: bool = false;
-            let mut this_arg: String = String::new();
-            for (idx, c) in args.chars().enumerate() {
-                // Start or stop "being" in a string unless escaped
-                if c == '\'' && !char_escaped {
-                    in_quotes = !in_quotes;
-                }
-                // If we are escaping this character, unset it
-                if char_escaped {
-                    char_escaped = false;
-                }
-                // Only escape inside a string
-                if c == '\\' && in_quotes {
-                    char_escaped = true;
-                }
-                // is_escaped can only be set inside a string
-                if c == ',' && !in_quotes {
-                    args_list.push(this_arg.trim().to_string());
-                    this_arg = String::new();
-                } else {
-                    // Push to this arg before checking end of string
-                    this_arg.push(c);
-                }
-                if idx == args.len() - 1 {
-                    if in_quotes {
-                        return Err(ParserError::InvalidSyntax("unterminated string"));
-                    }
-                    args_list.push(this_arg.trim().to_string());
-                }
-            }
-        }
-
-        // Expression resolution is required to know the true op code, however all op codes of the
-        // same instruction are the same width which we can use to work out label addressing for
-        // expression parsing
-        //
-        // E.g. MOV M, A is one byte, as is MOV A, A
-        //
-        // It is this expression parsing that will give us the true arguments and then the true
-        // operation code... in short, `op_code` is a temporary value...
-        //
-        // *Note*: The NoSuchInstruction could be caused by a macro...
-        let op_code: Option<u8>;
-        match find_op_code::from_args(line, 0, 0) {
-            Ok(op) => op_code = Some(op as u8),
-            Err(e) => match e {
-                OpParseError::NoSuchInstruction(_) => op_code = None,
-                _ => {
-                    return Err(ParserError::NoInstructionFound(e));
-                }
-            },
-        };
-
-        Ok(Some(LineMeta {
-            comment,
-            inst: Some(line.to_string()),
-            args_list,
-            raw_line: raw_line.to_string(),
-            label,
-            op_code,
-            ..Default::default()
-        }))
     }
 }
 
@@ -768,9 +776,4 @@ fn print_line_err(line: &LineMeta, e: &ParserError) {
         "\nError generated here\n\n  {}: {}\n\n{}\n",
         line.line_no, line.raw_line, e
     );
-}
-
-fn read_lines<P: AsRef<Path>>(filename: P) -> io::Result<io::Lines<io::BufReader<File>>> {
-    let file = File::open(filename)?;
-    Ok(io::BufReader::new(file).lines())
 }

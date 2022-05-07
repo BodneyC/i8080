@@ -1,5 +1,6 @@
-use crate::errors::OpParseError;
 use crate::op_meta::I8080_OP_META;
+
+use super::errors::OpParseError;
 
 pub fn from_args(inst: &str, arg0: u16, arg1: u16) -> Result<usize, OpParseError> {
     from_args_and_sp_psw(inst, arg0, arg1, false, false)

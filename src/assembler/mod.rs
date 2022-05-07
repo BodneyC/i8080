@@ -6,6 +6,10 @@ pub mod assembler;
 pub mod label;
 
 mod find_op_code;
+mod util;
+mod tokenizer;
+mod expressions;
+mod errors;
 
 pub fn run_assembler(args: AssembleArgs) -> i32 {
     let mut assembler = Assembler::new();

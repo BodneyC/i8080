@@ -9,7 +9,6 @@ use system::run_system;
 
 mod assembler;
 mod cli;
-mod errors;
 mod op_meta;
 mod system;
 mod util;

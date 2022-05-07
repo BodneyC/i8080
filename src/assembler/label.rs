@@ -1,6 +1,6 @@
 #[derive(Debug, Clone, Copy)]
 pub struct Label {
-    val: Option<u16>,
+    pub value: Option<u16>,
     is_addr: bool,
     is_eq: bool,
     is_set: bool,
@@ -9,7 +9,7 @@ pub struct Label {
 impl Label {
     pub fn new_addr(val: Option<u16>) -> Self {
         Self {
-            val,
+            value: val,
             is_addr: true,
             is_eq: false,
             is_set: false,
@@ -18,7 +18,7 @@ impl Label {
 
     pub fn new_eq(val: Option<u16>) -> Self {
         Self {
-            val,
+            value: val,
             is_addr: false,
             is_eq: true,
             is_set: false,
@@ -27,7 +27,7 @@ impl Label {
 
     pub fn new_set(val: Option<u16>) -> Self {
         Self {
-            val,
+            value: val,
             is_addr: false,
             is_eq: false,
             is_set: true,
