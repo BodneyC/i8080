@@ -72,10 +72,16 @@ impl I8080 {
             0x3c => self.registers.a = self.inr(self.registers.a),
 
             // INX
-            0x03 => self.registers.set_bc(self.registers.get_bc() + 1),
-            0x13 => self.registers.set_de(self.registers.get_de() + 1),
-            0x23 => self.registers.set_hl(self.registers.get_hl() + 1),
-            0x33 => self.registers.pc += 1,
+            0x03 => self
+                .registers
+                .set_bc(self.registers.get_bc().wrapping_add(1)),
+            0x13 => self
+                .registers
+                .set_de(self.registers.get_de().wrapping_add(1)),
+            0x23 => self
+                .registers
+                .set_hl(self.registers.get_hl().wrapping_add(1)),
+            0x33 => self.registers.pc = self.registers.pc.wrapping_add(1),
 
             // ------------------------------------------ DEC
 
@@ -94,9 +100,15 @@ impl I8080 {
             0x3d => self.registers.a = self.inr(self.registers.a),
 
             // DCX
-            0x0b => self.registers.set_bc(self.registers.get_bc() - 1),
-            0x1b => self.registers.set_de(self.registers.get_de() - 1),
-            0x2b => self.registers.set_hl(self.registers.get_hl() - 1),
+            0x0b => self
+                .registers
+                .set_bc(self.registers.get_bc().wrapping_sub(1)),
+            0x1b => self
+                .registers
+                .set_de(self.registers.get_de().wrapping_sub(1)),
+            0x2b => self
+                .registers
+                .set_hl(self.registers.get_hl().wrapping_sub(1)),
             0x3b => self.registers.pc -= 1,
 
             // ------------------------------------------ MOV
@@ -436,9 +448,14 @@ impl I8080 {
     /// - val: Value to add
     /// - carry: Carry flag
     fn add(&mut self, val: u8, carry: bool) {
-        let result16: u16 = (self.registers.a as u16) + (val as u16) + (carry as u16);
+        let result16: u16 = (self.registers.a as u16)
+            .wrapping_add(val as u16)
+            .wrapping_add(carry as u16);
         self.flags.carry = result16 > 0xff;
-        self.flags.aux_carry = (self.registers.a & 0xf) + (val & 0xf) + (carry as u8) > 0xf;
+        self.flags.aux_carry = (self.registers.a & 0xf)
+            .wrapping_add(val & 0xf)
+            .wrapping_add(carry as u8)
+            > 0xf;
         self.registers.a = result16 as u8;
         self.flags.zero_sign_parity(self.registers.a);
     }
@@ -454,10 +471,14 @@ impl I8080 {
     /// - val: Value to subtract
     /// - carry: Carry flag
     fn sub(&mut self, val: u8, carry: bool) {
-        self.flags.carry = (self.registers.a as u16) < (val + (carry as u8)) as u16;
-        self.flags.aux_carry =
-            (self.registers.a as i8 & 0xf) - (val as i8 & 0xf) - (carry as i8) >= 0;
-        self.registers.a = ((self.registers.a as u16) - (val as u16) - (carry as u16)) as u8;
+        self.flags.carry = (self.registers.a as u16) < (val.wrapping_add(carry as u8)) as u16;
+        self.flags.aux_carry = (self.registers.a as i8 & 0xf)
+            .wrapping_sub(val as i8 & 0xf)
+            .wrapping_sub(carry as i8)
+            >= 0;
+        self.registers.a = ((self.registers.a as u16)
+            .wrapping_sub(val as u16)
+            .wrapping_sub(carry as u16)) as u8;
         self.flags.zero_sign_parity(self.registers.a);
     }
 
@@ -520,8 +541,8 @@ impl I8080 {
     ///
     /// - val: Value to increment
     fn inr(&mut self, val: u8) -> u8 {
-        let result = val + 1;
-        self.flags.aux_carry = (result & 0xf) + 1 > 0xf;
+        let result = val.wrapping_add(1);
+        self.flags.aux_carry = (result & 0xf).wrapping_add(1) > 0xf;
         self.flags.zero_sign_parity(result);
         result
     }
@@ -534,7 +555,7 @@ impl I8080 {
     ///
     /// - val: Value to decrement
     fn dcr(&mut self, val: u8) -> u8 {
-        let result = val - 1;
+        let result = val.wrapping_sub(1);
         self.flags.aux_carry = (result & 0xf) != 0xf;
         self.flags.zero_sign_parity(result);
         result
@@ -663,8 +684,8 @@ impl I8080 {
     /// Double add, adds a word (a double) to HL
     fn dad(&mut self, val: u16) {
         let hl: u16 = self.registers.get_hl();
-        self.flags.carry = hl > (0xffff - val);
-        self.registers.set_hl(hl + val);
+        self.flags.carry = hl > 0xffff_u16.wrapping_sub(val);
+        self.registers.set_hl(hl.wrapping_add(val));
     }
 
     /// Rotate A left once, no carry
