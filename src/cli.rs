@@ -12,7 +12,9 @@ pub struct Cli {
 #[derive(Debug, Subcommand)]
 pub enum Commands {
     Run(RunArgs),
+    #[clap(visible_alias = "ass")]
     Assemble(AssembleArgs),
+    #[clap(visible_alias = "dis")]
     Disassemble(DisassembleArgs),
 }
 
@@ -38,6 +40,12 @@ pub struct AssembleArgs {
     pub input: PathBuf,
     #[clap(short, long, default_value = "a.out", help = "Output filename")]
     pub output: PathBuf,
+    #[clap(
+        long,
+        default_value = "0",
+        help = "Address at which the file will be loaded"
+    )]
+    pub load_address: u16,
 }
 
 #[derive(Debug, Args)]

@@ -2,7 +2,7 @@ use std::{fmt, io};
 
 use crate::assembler::label::Label;
 
-use super::expressions::errors::ExpressionError;
+use super::{expressions::errors::ExpressionError, parser::Macro};
 
 #[derive(Debug)]
 pub enum AssemblerError {
@@ -39,17 +39,20 @@ impl From<CodeGenError> for AssemblerError {
 #[derive(Debug)]
 pub enum ParserError {
     ExpressionError(ExpressionError),
+    UnknownDefine(String),
 
     NoArgsForVariadic,
     WrongNumberOfArgs(usize, usize),
     OperationRequiresLabel(String),
 
     InvalidExpression,
+    InvalidArgument(String, String),
     UnterminatedString(String),
     InvalidLabel(String),
 
     NoSuchLabel,
     LabelAlreadyDefined(String, Label),
+    MacroAlreadyDefined(String, Macro),
     NoSuchMacro(String),
     NoInstructionFound(OpParseError),
 
@@ -75,6 +78,7 @@ impl fmt::Display for ParserError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::ExpressionError(e) => write!(f, "expression evaluation error: {:?}", e),
+            Self::UnknownDefine(s) => write!(f, "unknown vararg: {}", s),
 
             Self::NoArgsForVariadic => write!(f, "no arguments given for variadic instruction"),
             Self::WrongNumberOfArgs(req, rec) => write!(
@@ -85,12 +89,16 @@ impl fmt::Display for ParserError {
             Self::OperationRequiresLabel(s) => write!(f, "operation ({}) required label", s),
 
             Self::InvalidExpression => write!(f, ""),
+            Self::InvalidArgument(inst, arg) => write!(f, "invalid arg for {}, {}", inst, arg),
             Self::UnterminatedString(s) => write!(f, "unterminated string: '{}'", s),
             Self::InvalidLabel(s) => write!(f, "invalid label: '{}'", s),
 
             Self::NoSuchLabel => write!(f, ""),
             Self::LabelAlreadyDefined(s, l) => {
                 write!(f, "label ({}) already defined at {:?}", s, l)
+            }
+            Self::MacroAlreadyDefined(s, m) => {
+                write!(f, "macro ({}) already defined at {:?}", s, m)
             }
             Self::NoSuchMacro(s) => write!(f, "no macro found ({})", s),
             Self::NoInstructionFound(_) => write!(f, ""),
@@ -154,7 +162,6 @@ impl From<ExpressionError> for CodeGenError {
         CodeGenError::ParserError(ParserError::ExpressionError(e))
     }
 }
-
 
 #[derive(Debug)]
 pub enum OpParseError {

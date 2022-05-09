@@ -6,7 +6,8 @@ use crate::op_meta::{OpMeta, I8080_OP_META};
 use crate::system::flags::Flags;
 use crate::system::memory::Memory;
 use crate::system::registers::Registers;
-use crate::util;
+
+use super::util;
 
 use log::Level;
 

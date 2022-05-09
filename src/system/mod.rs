@@ -6,11 +6,13 @@ use self::device::console_device::{special_chars, ConsoleDevice};
 use self::device::TxDevice;
 use self::i8080::I8080;
 
-pub mod device;
-pub mod flags;
 pub mod i8080;
-pub mod memory;
-pub mod registers;
+
+mod device;
+mod flags;
+mod memory;
+mod registers;
+mod util;
 
 pub fn run_system(args: RunArgs) -> i32 {
     // TODO: Handle `file`, `from_asm`, and loading

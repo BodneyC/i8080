@@ -208,7 +208,7 @@ impl<'a> Lexer<'a> {
     fn consume_identifier(&mut self) -> String {
         let mut s = String::new();
         while let Some(&c) = self.iter.peek() {
-            if c.is_alphabetic() || c == '_' {
+            if c.is_alphabetic() || c == '_' || c.is_numeric() {
                 s.push(c);
             } else {
                 break;
@@ -252,12 +252,11 @@ mod tests {
         lexer.set_input(s, 0);
 
         let out = lexer.consume_identifier();
-        assert_eq!(out, "_ident".to_string());
+        assert_eq!(out, "_ident8080".to_string());
 
         let next = lexer.iter.next();
 
-        assert!(next.is_some(), "'8080' should remain");
-        assert_eq!(next.unwrap(), '8');
+        assert!(next.is_none(), "numerics consumed too");
     }
 
     #[test]

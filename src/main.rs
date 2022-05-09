@@ -11,7 +11,6 @@ mod assembler;
 mod cli;
 mod op_meta;
 mod system;
-mod util;
 
 fn main() {
     env_logger::init();

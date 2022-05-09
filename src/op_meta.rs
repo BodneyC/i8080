@@ -4,7 +4,7 @@ pub struct OpMeta {
     pub asm_arg_count: usize,
     pub argb: bool,
     pub argw: bool,
-    pub varargs: bool,
+    pub define: bool,
     pub labelled: bool,
     // The cycle counts used are from https://github.com/superzazu/8080/blob/master/i8080.c#L7
     pub cycles: u8,
@@ -17,7 +17,7 @@ impl Default for OpMeta {
             asm_arg_count: 0,
             argb: false,
             argw: false,
-            varargs: false,
+            define: false,
             labelled: false,
             cycles: 0,
         }
@@ -32,7 +32,7 @@ impl OpMeta {
             asm_arg_count,
             argb: false,
             argw: false,
-            varargs: false,
+            define: false,
             labelled: false,
         }
     }
@@ -44,7 +44,7 @@ impl OpMeta {
             asm_arg_count,
             argb: true,
             argw: false,
-            varargs: false,
+            define: false,
             labelled: false,
         }
     }
@@ -56,18 +56,18 @@ impl OpMeta {
             asm_arg_count,
             argb: false,
             argw: true,
-            varargs: false,
+            define: false,
             labelled: false,
         }
     }
 
-    const fn new_varargs(op: &'static str, asm_arg_count: usize) -> Self {
+    const fn new_define(op: &'static str, asm_arg_count: usize) -> Self {
         Self {
             op,
             asm_arg_count,
             argb: false,
             argw: false,
-            varargs: true,
+            define: true,
             labelled: false,
             cycles: 0,
         }
@@ -79,7 +79,7 @@ impl OpMeta {
             asm_arg_count,
             argb: false,
             argw: false,
-            varargs: false,
+            define: false,
             labelled: true,
             cycles: 0,
         }
@@ -435,9 +435,10 @@ const fn load_op_meta() -> [OpMeta; 0x10b] {
 
     // ------------------------------------------ META INSTRUCTIONS
 
-    set[0x100] = OpMeta::new_varargs("DB", 0);
-    set[0x101] = OpMeta::new_varargs("DW", 0);
-    set[0x102] = OpMeta::new_varargs("DS", 1);
+    set[0x100] = OpMeta::new_define("DB", 0);
+    set[0x101] = OpMeta::new_define("DW", 0);
+    set[0x102] = OpMeta::new_define("DS", 1);
+    set[0x102].argb = true;
     set[0x103] = OpMeta::new_labelled("EQU", 1);
     set[0x103].argw = true;
     set[0x104] = OpMeta::new_labelled("SET", 1);

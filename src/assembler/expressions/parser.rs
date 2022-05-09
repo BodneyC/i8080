@@ -11,6 +11,14 @@ use super::token::Token;
 
 pub type ExprOutput = (Vec<u8>, ExprFlags);
 
+pub fn parse_expression_u16<S: Into<String>>(
+    exp: S,
+    addr: u16,
+    labels: &HashMap<String, Label>,
+) -> Result<(u16, ExprFlags), ExpressionError> {
+    parse_expression(exp, addr, labels).and_then(|(v, flags)| Ok((util::vec_u8_to_u16(&v), flags)))
+}
+
 pub fn parse_expression<S: Into<String>>(
     exp: S,
     addr: u16,

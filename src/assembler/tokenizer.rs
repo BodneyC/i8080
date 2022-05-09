@@ -9,7 +9,7 @@ pub struct LineMeta {
     pub inst: Option<String>,
     pub args_list: Vec<String>,
     pub label: Option<String>,
-    pub op_code: Option<u8>,
+    pub op_code: Option<u16>,
     pub label_only: bool,
     pub address: u16,
     pub width: usize,
@@ -80,8 +80,11 @@ pub fn tokenize(raw_line: &String) -> Result<Option<LineMeta>, ParserError> {
         if label_str.len() == 0 {
             return Err(ParserError::InvalidLabel(label_str));
         }
-        for c in label_str.chars() {
-            if c != '_' && !c.is_alphabetic() {
+        for (idx, c) in label_str.chars().enumerate() {
+            if idx == 0 && c != '_' && !c.is_alphabetic() {
+                return Err(ParserError::InvalidLabel(label_str));
+            }
+            if c != '_' && !c.is_alphabetic() && !c.is_numeric() {
                 return Err(ParserError::InvalidLabel(label_str));
             }
         }
@@ -159,10 +162,10 @@ pub fn tokenize(raw_line: &String) -> Result<Option<LineMeta>, ParserError> {
     // operation code... in short, `op_code` is a temporary value...
     //
     // *Note*: The NoSuchInstruction could be caused by a macro...
-    let op_code: Option<u8>;
+    let op_code: Option<u16>;
     let inst = line.to_uppercase();
     match find_op_code::from_args(inst.as_str(), 0, 0) {
-        Ok(op) => op_code = Some(op as u8),
+        Ok(op) => op_code = Some(op as u16),
         Err(e) => match e {
             OpParseError::NoSuchInstruction(_) => op_code = None,
             _ => {

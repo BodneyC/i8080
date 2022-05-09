@@ -1,8 +1,8 @@
 use crate::cli::AssembleArgs;
 
-use self::assembler::Assembler;
+use self::parser::Assembler;
 
-pub mod assembler;
+pub mod parser;
 pub mod label;
 
 mod find_op_code;
@@ -13,7 +13,7 @@ mod errors;
 
 pub fn run_assembler(args: AssembleArgs) -> i32 {
     let mut assembler = Assembler::new();
-    match assembler.assemble(args.input) {
+    match assembler.assemble(args.input, args.load_address) {
         Ok(bytes) => match assembler.write_file(args.output, bytes) {
             Ok(_) => 0,
             Err(e) => {
