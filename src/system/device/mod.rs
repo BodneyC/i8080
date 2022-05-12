@@ -18,6 +18,7 @@ pub struct RxDevice {
 }
 
 impl RxDevice {
+    #[allow(dead_code)] // This may be used at some point...
     pub fn new(rx: Receiver<u8>) -> Self {
         Self { rx }
     }

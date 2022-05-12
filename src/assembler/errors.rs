@@ -2,7 +2,7 @@ use std::{fmt, io};
 
 use crate::assembler::label::Label;
 
-use super::{expressions::errors::ExpressionError, parser::Macro};
+use super::expressions::errors::ExpressionError;
 
 #[derive(Debug)]
 pub enum AssemblerError {
@@ -16,9 +16,9 @@ impl std::error::Error for AssemblerError {}
 impl fmt::Display for AssemblerError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Self::FileReadError(e) => write!(f, "failed to open file for read: {:?}", e),
-            Self::ParserError(_) => write!(f, "error occured in parsing"),
-            Self::CodeGenError(_) => write!(f, "error occured in byte generation"),
+            Self::FileReadError(e) => write!(f, "{}", e),
+            Self::ParserError(e) => write!(f, "{}", e),
+            Self::CodeGenError(e) => write!(f, "{}", e),
         }
     }
 }
@@ -45,15 +45,12 @@ pub enum ParserError {
     WrongNumberOfArgs(usize, usize),
     OperationRequiresLabel(String),
 
-    InvalidExpression,
+    // InvalidExpression,
     InvalidArgument(String, String),
     UnterminatedString(String),
     InvalidLabel(String),
 
-    NoSuchLabel,
     LabelAlreadyDefined(String, Label),
-    MacroAlreadyDefined(String, Macro),
-    NoSuchMacro(String),
     NoInstructionFound(OpParseError),
 
     OrigInMacro,
@@ -77,49 +74,44 @@ impl std::error::Error for ParserError {}
 impl fmt::Display for ParserError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Self::ExpressionError(e) => write!(f, "expression evaluation error: {:?}", e),
-            Self::UnknownDefine(s) => write!(f, "unknown vararg: {}", s),
+            Self::ExpressionError(e) => write!(f, "Expression evaluation error: {:?}", e),
+            Self::UnknownDefine(s) => write!(f, "Unknown vararg: {}", s),
 
-            Self::NoArgsForVariadic => write!(f, "no arguments given for variadic instruction"),
+            Self::NoArgsForVariadic => write!(f, "No arguments given for variadic instruction"),
             Self::WrongNumberOfArgs(req, rec) => write!(
                 f,
-                "invalid argument count, required {}, received {}",
+                "Invalid argument count, required {}, received {}",
                 req, rec
             ),
-            Self::OperationRequiresLabel(s) => write!(f, "operation ({}) required label", s),
+            Self::OperationRequiresLabel(s) => write!(f, "Operation ({}) required label", s),
 
-            Self::InvalidExpression => write!(f, ""),
-            Self::InvalidArgument(inst, arg) => write!(f, "invalid arg for {}, {}", inst, arg),
-            Self::UnterminatedString(s) => write!(f, "unterminated string: '{}'", s),
-            Self::InvalidLabel(s) => write!(f, "invalid label: '{}'", s),
+            // Self::InvalidExpression => write!(f, ""),
+            Self::InvalidArgument(inst, arg) => write!(f, "Invalid arg for {}, {}", inst, arg),
+            Self::UnterminatedString(s) => write!(f, "Unterminated string: [{}]", s),
+            Self::InvalidLabel(s) => write!(f, "Invalid label: [{}]", s),
 
-            Self::NoSuchLabel => write!(f, ""),
             Self::LabelAlreadyDefined(s, l) => {
-                write!(f, "label ({}) already defined at {:?}", s, l)
+                write!(f, "Label ({}) already defined at {:?}", s, l)
             }
-            Self::MacroAlreadyDefined(s, m) => {
-                write!(f, "macro ({}) already defined at {:?}", s, m)
-            }
-            Self::NoSuchMacro(s) => write!(f, "no macro found ({})", s),
             Self::NoInstructionFound(_) => write!(f, ""),
 
             Self::OrigInMacro => write!(f, "ORIG used in macro"),
-            Self::DefineInMacro => write!(f, "cannot define (DB DW DB) in macro"),
+            Self::DefineInMacro => write!(f, "Cannot define (DB DW DB) in macro"),
             Self::NotInMacro => write!(f, "ENDM found before MACRO"),
-            Self::NestedMacro => write!(f, "nested MACRO not permitted"),
+            Self::NestedMacro => write!(f, "Nested MACRO not permitted"),
             Self::MacroCallInMacroUsesSp => write!(
                 f,
-                "use of a macro which uses SP ('$') inside another macro is not permitted"
+                "Use of a macro which uses SP ('$') inside another macro is not permitted"
             ),
-            Self::MacroUseBeforeCreation => write!(f, "macro used before its definition"),
-            Self::RecursiveMacro => write!(f, "use of macro from within macro definition"),
-            Self::NoEndMacro => write!(f, "no ENDM found"),
+            Self::MacroUseBeforeCreation => write!(f, "Macro used before its definition"),
+            Self::RecursiveMacro => write!(f, "Use of macro from within macro definition"),
+            Self::NoEndMacro => write!(f, "No ENDM found"),
 
-            Self::IfAndMacroMix => write!(f, "this assembler does not support mixing MACRO and IF"),
+            Self::IfAndMacroMix => write!(f, "This assembler does not support mixing MACRO and IF"),
 
-            Self::NestedIf => write!(f, "nested IF not permitted"),
+            Self::NestedIf => write!(f, "Nested IF not permitted"),
             Self::NotInIf => write!(f, "ENDIF found before IF"),
-            Self::NoEndIf => write!(f, "no ENDIF found"),
+            Self::NoEndIf => write!(f, "No ENDIF found"),
         }
     }
 }
@@ -141,10 +133,10 @@ impl std::error::Error for CodeGenError {}
 impl fmt::Display for CodeGenError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            CodeGenError::ParserError(e) => write!(f, "expression error: {}", e),
+            CodeGenError::ParserError(e) => write!(f, "Expression error: {}", e),
             CodeGenError::UnexpectedLength(exp, act) => write!(
                 f,
-                "byte length generate ({}) differs from expected ({})",
+                "Byte length generate ({}) differs from expected ({})",
                 act, exp,
             ),
         }
@@ -176,10 +168,10 @@ impl std::error::Error for OpParseError {}
 impl fmt::Display for OpParseError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Self::UnknownRegister => write!(f, "no register represented"),
-            Self::InvalidRegister => write!(f, "register invalid for instruction"),
+            Self::UnknownRegister => write!(f, "No register represented"),
+            Self::InvalidRegister => write!(f, "Register invalid for instruction"),
             Self::MovAsHalt => write!(f, "0x76 represents a HALT"),
-            Self::NoSuchInstruction(inst) => write!(f, "no instruction represented by '{}'", inst),
+            Self::NoSuchInstruction(inst) => write!(f, "No instruction represented by [{}]", inst),
         }
     }
 }

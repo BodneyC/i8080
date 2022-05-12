@@ -52,11 +52,6 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    pub fn set_input(&mut self, raw_str: &'a str, address: u16) {
-        self.iter = raw_str.chars().peekable();
-        self.address = address;
-    }
-
     pub fn lex(
         &mut self,
         raw_str: &'a str,
@@ -216,6 +211,12 @@ impl<'a> Lexer<'a> {
             self.iter.next();
         }
         s
+    }
+
+    #[cfg(test)]
+    fn set_input(&mut self, raw_str: &'a str, address: u16) {
+        self.iter = raw_str.chars().peekable();
+        self.address = address;
     }
 }
 

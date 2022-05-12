@@ -44,6 +44,15 @@ impl LineMeta {
         }
     }
 
+    pub fn from_raw(line_no: usize, raw_line: String) -> Self {
+        trace!("@{} | {}", line_no, raw_line);
+        Self {
+            line_no,
+            raw_line,
+            ..Default::default()
+        }
+    }
+
     pub fn label_only(label: Option<String>, comment: Option<String>, raw_line: String) -> Self {
         Self {
             label,

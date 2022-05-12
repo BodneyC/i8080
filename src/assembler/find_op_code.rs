@@ -59,9 +59,9 @@ pub fn from_args_and_sp_psw(
 
 fn with_all_regs(start: u16, arg0: u16, arg1: u16, extra: bool) -> Result<usize, OpParseError> {
     if extra {
-        Err(OpParseError::InvalidRegister)
+        Err(OpParseError::UnknownRegister)
     } else if arg0 > 7 || arg1 > 7 {
-        Err(OpParseError::InvalidRegister)
+        Err(OpParseError::UnknownRegister)
     } else {
         let idx = start + (arg0 * 8) + arg1;
         Ok(idx as usize)

@@ -68,6 +68,7 @@ impl I8080 {
 
     // NOTE: Not sure how to split ownership between some thread in `run` and
     //   some caller of this
+    #[allow(dead_code)]
     pub fn issue_interrupt(&mut self, inst: u8) {
         self.interrupt_flip_flop = true;
         self.interrupt_op_code = Some(inst);
@@ -75,6 +76,12 @@ impl I8080 {
 
     pub fn load(&mut self, addr: u16, prog: Vec<u8>) -> usize {
         self.memory.load(addr, prog)
+    }
+
+    pub fn randomize(&mut self) {
+        self.flags.from_byte(rand::thread_rng().gen());
+        self.registers.randomize();
+        self.memory.randomize();
     }
 
     /// Get the instruction at PC
@@ -120,12 +127,6 @@ impl I8080 {
             debug!("{}", self.fmt_instruction(inst, meta, is_interrupt));
             self.log_components();
         }
-    }
-
-    pub(crate) fn randomize(&mut self) {
-        self.flags.from_byte(rand::thread_rng().gen());
-        self.registers.randomize();
-        self.memory.randomize();
     }
 }
 

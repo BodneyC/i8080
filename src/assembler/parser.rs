@@ -1,9 +1,8 @@
-use std::borrow::Borrow;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::{fs, io};
 
+use crate::cli::AssembleArgs;
 use crate::op_meta::I8080_OP_META;
 
 use super::errors::{AssemblerError, CodeGenError, ParserError};
@@ -31,7 +30,21 @@ impl Macro {
     }
 }
 
+fn get_reg_defs() -> HashMap<String, Label> {
+    let mut map = HashMap::new();
+    map.insert("B".to_string(), Label::new_addr(Some(0)));
+    map.insert("C".to_string(), Label::new_addr(Some(1)));
+    map.insert("D".to_string(), Label::new_addr(Some(2)));
+    map.insert("E".to_string(), Label::new_addr(Some(3)));
+    map.insert("H".to_string(), Label::new_addr(Some(4)));
+    map.insert("L".to_string(), Label::new_addr(Some(5)));
+    map.insert("M".to_string(), Label::new_addr(Some(6)));
+    map.insert("A".to_string(), Label::new_addr(Some(7)));
+    map
+}
+
 pub struct Assembler {
+    args: AssembleArgs,
     lines: RefCell<Vec<LineMeta>>,
     macros: RefCell<HashMap<String, Macro>>,
     labels: HashMap<String, Label>,
@@ -40,8 +53,9 @@ pub struct Assembler {
 }
 
 impl Assembler {
-    pub fn new() -> Self {
+    pub fn new(args: AssembleArgs) -> Self {
         Self {
+            args,
             lines: RefCell::new(Vec::new()),
             macros: RefCell::new(HashMap::new()),
             labels: HashMap::new(),
@@ -50,35 +64,19 @@ impl Assembler {
         }
     }
 
-    pub fn assemble(
-        &mut self,
-        input: PathBuf,
-        load_address: u16,
-    ) -> Result<Vec<u8>, AssemblerError> {
-        self.load_file(input)
+    pub fn assemble(&mut self) -> Result<Vec<u8>, AssemblerError> {
+        if self.args.register_definitions {
+            self.labels = get_reg_defs();
+        }
+        self.load_file()
             .and_then(|lines| {
-                self.parse_at(lines, load_address)
-                    .map_err(|e| AssemblerError::ParserError(e))
+                self.parse_at(lines, self.args.load_at)
+                    .map_err(|e| e.into())
             })
-            .and_then(|_| {
-                self.gen_macros()
-                    .map_err(|e| AssemblerError::CodeGenError(e))
-            })
-            .and_then(|_| {
-                self.generate_prog()
-                    .map_err(|e| AssemblerError::CodeGenError(e))
-            })
+            .and_then(|_| self.gen_macros().map_err(|e| e.into()))
+            .and_then(|_| self.generate_prog().map_err(|e| e.into()))
             .map_err(|e| {
-                match e.borrow() {
-                    AssemblerError::ParserError(e) => {
-                        if let Some(line) = &self.erroring_line {
-                            print_line_err(line, e);
-                        } else {
-                            print_file_err(e);
-                        }
-                    }
-                    _ => println!("error during assembly: {}", e),
-                };
+                self.print_err_msg(&e);
                 e
             })
     }
@@ -312,9 +310,13 @@ impl Assembler {
                 }
             }
         }
+        if self.args.add_hlt {
+            bytes.push(0x76);
+        }
         Ok(bytes)
     }
 
+    #[cfg(test)]
     fn parse(&mut self, lines: Vec<LineMeta>) -> Result<(), ParserError> {
         self.parse_at(lines, 0)
     }
@@ -698,8 +700,8 @@ impl Assembler {
         }
     }
 
-    pub fn write_file(&self, output: PathBuf, bytes: Vec<u8>) -> Result<(), io::Error> {
-        fs::write(output, &bytes)
+    pub fn write_file(&self, bytes: Vec<u8>) -> Result<(), io::Error> {
+        fs::write(&self.args.output, &bytes)
     }
 
     /// The DB instruction can be given in a few forms:
@@ -747,13 +749,17 @@ impl Assembler {
         }
     }
 
-    fn load_file(&mut self, input: PathBuf) -> Result<Vec<LineMeta>, AssemblerError> {
+    fn load_file(&mut self) -> Result<Vec<LineMeta>, AssemblerError> {
         let mut line_vec: Vec<LineMeta> = vec![];
-        match util::read_lines(input) {
+        match util::read_lines(&self.args.input) {
             Ok(lines) => {
                 for (line_no, line_res) in lines.enumerate() {
                     if let Ok(line) = line_res {
-                        let line_opt = tokenizer::tokenize(&line)?;
+                        let line_opt = tokenizer::tokenize(&line).map_err(|e| {
+                            self.erroring_line =
+                                Some(LineMeta::from_raw(line_no, line.to_string()));
+                            e
+                        })?;
                         if let Some(mut line_meta) = line_opt {
                             line_meta.line_no = line_no;
                             line_vec.push(line_meta);
@@ -765,26 +771,36 @@ impl Assembler {
             Err(e) => Err(AssemblerError::FileReadError(e)),
         }
     }
-}
 
-fn print_file_err(e: &ParserError) {
-    println!("\nError generated at end of file\n\n{}\n", e);
-}
-
-fn print_line_err(line: &LineMeta, e: &ParserError) {
-    println!(
-        "\nError generated here\n\n  {}: {}\n\n{}\n",
-        line.line_no, line.raw_line, e
-    );
+    fn print_err_msg(&mut self, e: &AssemblerError) {
+        println!("{}", e);
+        if let Some(line) = &self.erroring_line {
+            println!("\n  {: <3}| {}", line.line_no, line.raw_line);
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::borrow::Borrow;
+    use std::path::PathBuf;
+
+    impl AssembleArgs {
+        fn new() -> Self {
+            Self {
+                input: PathBuf::new(),
+                output: PathBuf::new(),
+                load_at: 0,
+                register_definitions: false,
+                add_hlt: false,
+            }
+        }
+    }
 
     #[test]
     fn width_of_vararg_db() {
-        let ass = Assembler::new();
+        let ass = Assembler::new(AssembleArgs::new());
 
         let args = vec!["13".to_string()];
         let width = ass
@@ -807,7 +823,7 @@ mod tests {
 
     #[test]
     fn width_of_vararg_dw() {
-        let ass = Assembler::new();
+        let ass = Assembler::new(AssembleArgs::new());
 
         let args = vec!["13".to_string(), "fish".to_string()];
         let width = ass
@@ -818,7 +834,7 @@ mod tests {
 
     #[test]
     fn width_of_vararg_ds() {
-        let mut ass = Assembler::new();
+        let mut ass = Assembler::new(AssembleArgs::new());
 
         let args = vec!["13".to_string()];
         let width = ass
@@ -856,7 +872,7 @@ mod tests {
 
     #[test]
     fn parse_no_meta() {
-        let mut ass = Assembler::new();
+        let mut ass = Assembler::new(AssembleArgs::new());
 
         let raw_lines = vec![
             line_meta_for_parse("MOV", 0x40, vec!["A", "B"], Some("_l1")),
@@ -896,7 +912,7 @@ mod tests {
 
     #[test]
     fn parse_if_endif() {
-        let mut ass = Assembler::new();
+        let mut ass = Assembler::new(AssembleArgs::new());
 
         let raw_lines = vec![
             line_meta_for_parse("MOV", 0x40, vec!["A", "B"], Some("_l1")),
@@ -933,7 +949,7 @@ mod tests {
 
     #[test]
     fn parse_nested_if_fails() {
-        let mut ass = Assembler::new();
+        let mut ass = Assembler::new(AssembleArgs::new());
 
         let raw_lines = vec![
             line_meta_for_parse("IF", 0x107, vec!["2"], None),
@@ -949,7 +965,7 @@ mod tests {
 
     #[test]
     fn parse_no_if_for_endif() {
-        let mut ass = Assembler::new();
+        let mut ass = Assembler::new(AssembleArgs::new());
 
         let raw_lines = vec![line_meta_for_parse("ENDIF", 0x108, vec![], None)];
 
@@ -961,7 +977,7 @@ mod tests {
 
     #[test]
     fn parse_no_endif_for_if() {
-        let mut ass = Assembler::new();
+        let mut ass = Assembler::new(AssembleArgs::new());
 
         let raw_lines = vec![line_meta_for_parse("IF", 0x107, vec!["2"], None)];
 
@@ -973,7 +989,7 @@ mod tests {
 
     #[test]
     fn parse_macro_endm() {
-        let mut ass = Assembler::new();
+        let mut ass = Assembler::new(AssembleArgs::new());
 
         let raw_lines = vec![
             line_meta_for_parse("MOV", 0x40, vec!["A", "B"], None),
@@ -999,7 +1015,7 @@ mod tests {
 
     #[test]
     fn call_a_macro() {
-        let mut ass = Assembler::new();
+        let mut ass = Assembler::new(AssembleArgs::new());
 
         let raw_lines = vec![
             line_meta_for_parse("MACRO", 0x109, vec![], Some("_m1")),
@@ -1031,7 +1047,7 @@ mod tests {
 
     #[test]
     fn load_address_with_macro() {
-        let mut ass = Assembler::new();
+        let mut ass = Assembler::new(AssembleArgs::new());
 
         let raw_lines = vec![
             line_meta_for_parse("MACRO", 0x109, vec![], Some("_m1")),
@@ -1063,7 +1079,7 @@ mod tests {
 
     #[test]
     fn parse_nested_macro_fails() {
-        let mut ass = Assembler::new();
+        let mut ass = Assembler::new(AssembleArgs::new());
 
         let raw_lines = vec![
             line_meta_for_parse("MACRO", 0x109, vec![], Some("_m1")),
@@ -1079,7 +1095,7 @@ mod tests {
 
     #[test]
     fn parse_no_macro_for_endm() {
-        let mut ass = Assembler::new();
+        let mut ass = Assembler::new(AssembleArgs::new());
 
         let raw_lines = vec![line_meta_for_parse("ENDM", 0x10a, vec![], None)];
 
@@ -1091,7 +1107,7 @@ mod tests {
 
     #[test]
     fn parse_no_endm_for_macro() {
-        let mut ass = Assembler::new();
+        let mut ass = Assembler::new(AssembleArgs::new());
         let raw_lines = vec![line_meta_for_parse("MACRO", 0x109, vec![], Some("_m1"))];
         let e = ass
             .parse(raw_lines)
@@ -1101,7 +1117,7 @@ mod tests {
 
     #[test]
     fn parse_use_of_org_in_macro() {
-        let mut ass = Assembler::new();
+        let mut ass = Assembler::new(AssembleArgs::new());
 
         let raw_lines = vec![
             line_meta_for_parse("MACRO", 0x109, vec![], Some("_m1")),
@@ -1117,7 +1133,7 @@ mod tests {
 
     #[test]
     fn parse_org_sets_the_address() {
-        let mut ass = Assembler::new();
+        let mut ass = Assembler::new(AssembleArgs::new());
 
         let raw_lines = vec![
             line_meta_for_parse("MOV", 0x40, vec!["A", "B"], None),
@@ -1141,7 +1157,7 @@ mod tests {
 
     #[test]
     fn parse_label_repeats() {
-        let mut ass = Assembler::new();
+        let mut ass = Assembler::new(AssembleArgs::new());
 
         let raw_lines = vec![
             line_meta_for_parse("MOV", 0x40, vec!["A", "B"], Some("_l1")),
@@ -1158,7 +1174,7 @@ mod tests {
 
     #[test]
     fn parse_equ_no_repeat() {
-        let mut ass = Assembler::new();
+        let mut ass = Assembler::new(AssembleArgs::new());
 
         let raw_lines = vec![
             line_meta_for_parse("EQU", 0x103, vec!["200"], Some("label")),
@@ -1175,7 +1191,7 @@ mod tests {
 
     #[test]
     fn parse_set_can_be_repeated() {
-        let mut ass = Assembler::new();
+        let mut ass = Assembler::new(AssembleArgs::new());
 
         let raw_lines = vec![
             line_meta_for_parse("SET", 0x104, vec!["200"], Some("label")),
@@ -1195,7 +1211,7 @@ mod tests {
 
     #[test]
     fn use_of_eq_and_set() {
-        let mut ass = Assembler::new();
+        let mut ass = Assembler::new(AssembleArgs::new());
 
         let raw_lines = vec![
             line_meta_for_parse("EQU", 0x103, vec!["200"], Some("EQ200")),
@@ -1243,7 +1259,7 @@ mod tests {
     #[test]
     fn gen_for_instruction_no_args() {
         let line = line_meta_for_gen("MOV", 0x40, vec!["1", "2"], None, 0, 1);
-        let ass = Assembler::new();
+        let ass = Assembler::new(AssembleArgs::new());
         let (bytes, pc) = ass.gen_for_instruction(&line, 0).expect("should generate");
         assert!(!pc, "pc ($) was not used");
         assert_eq!(bytes, vec![0x4a]);
@@ -1254,7 +1270,7 @@ mod tests {
         // The line will be loaded with the first MVI (0x06) but it should then resolve to
         // the true OP after expression parsing (0x2e)
         let line = line_meta_for_gen("MVI", 0x06, vec!["5", "0X12"], None, 0, 2);
-        let ass = Assembler::new();
+        let ass = Assembler::new(AssembleArgs::new());
         let (bytes, pc) = ass.gen_for_instruction(&line, 0).expect("should generate");
         assert!(!pc, "pc ($) was not used");
         assert_eq!(bytes, vec![0x2e, 0x12]);
@@ -1263,7 +1279,7 @@ mod tests {
     #[test]
     fn gen_for_instruction_argw() {
         let line = line_meta_for_gen("JMP", 0xc3, vec!["0X1234"], None, 0, 3);
-        let ass = Assembler::new();
+        let ass = Assembler::new(AssembleArgs::new());
         let (bytes, pc) = ass.gen_for_instruction(&line, 0).expect("should generate");
         assert!(!pc, "pc ($) was not used");
         assert_eq!(bytes, vec![0xc3, 0x34, 0x12]);
@@ -1272,7 +1288,7 @@ mod tests {
     #[test]
     fn gen_for_instruction_argb_with_sp() {
         let line = line_meta_for_gen("IN", 0xdb, vec!["$ + 2"], None, 0x212, 2);
-        let ass = Assembler::new();
+        let ass = Assembler::new(AssembleArgs::new());
         let (bytes, pc) = ass
             .gen_for_instruction(&line, 0x212)
             .expect("should generate");
@@ -1283,7 +1299,7 @@ mod tests {
     #[test]
     fn gen_for_instruction_db() {
         let line = line_meta_for_gen("DB", 0x100, vec!["0X10", "'ABAB'", "$"], None, 0, 4);
-        let ass = Assembler::new();
+        let ass = Assembler::new(AssembleArgs::new());
         let (bytes, pc) = ass.gen_for_instruction(&line, 0).expect("should generate");
         assert!(pc, "pc ($) not used");
         assert_eq!(
@@ -1295,7 +1311,7 @@ mod tests {
     #[test]
     fn gen_for_instruction_dw() {
         let line = line_meta_for_gen("DW", 0x101, vec!["0X1234", "0X10", "'ABPP'"], None, 0, 6);
-        let ass = Assembler::new();
+        let ass = Assembler::new(AssembleArgs::new());
         let (bytes, pc) = ass.gen_for_instruction(&line, 0).expect("should generate");
         assert!(!pc, "pc ($) was not used");
         assert_eq!(bytes, vec![0x34, 0x12, 0x10, 0x00, 'A' as u8, 'B' as u8]);
@@ -1304,7 +1320,7 @@ mod tests {
     #[test]
     fn gen_for_instruction_ds() {
         let line = line_meta_for_gen("DS", 0x102, vec!["10"], None, 0, 10);
-        let ass = Assembler::new();
+        let ass = Assembler::new(AssembleArgs::new());
         let (bytes, pc) = ass.gen_for_instruction(&line, 0).expect("should generate");
         assert!(!pc, "pc ($) was not used");
         assert_eq!(bytes, vec![0x00; 10]);
@@ -1327,7 +1343,7 @@ mod tests {
     fn gen_macro_no_pc() {
         let mut macros = HashMap::new();
         macros.insert("_m1".to_string(), macro_no_pc());
-        let mut ass = Assembler::new();
+        let mut ass = Assembler::new(AssembleArgs::new());
         ass.macros = RefCell::new(macros);
         ass.gen_macros().expect("macro should compile");
         let ass_macros = ass.macros.borrow();
@@ -1355,7 +1371,7 @@ mod tests {
     fn gen_macro_with_pc() {
         let mut macros = HashMap::new();
         macros.insert("_m1".to_string(), macro_with_pc());
-        let mut ass = Assembler::new();
+        let mut ass = Assembler::new(AssembleArgs::new());
         ass.macros = RefCell::new(macros);
         ass.gen_macros().expect("macro should compile");
         let ass_macros = ass.macros.borrow();
@@ -1368,7 +1384,7 @@ mod tests {
 
     #[test]
     fn gen_prog_with_macro_no_pc() {
-        let mut ass = Assembler::new();
+        let mut ass = Assembler::new(AssembleArgs::new());
 
         let mut macros = HashMap::new();
         let mut _m1 = macro_no_pc();
@@ -1404,7 +1420,7 @@ mod tests {
 
     #[test]
     fn gen_prog_with_macro_with_pc() {
-        let mut ass = Assembler::new();
+        let mut ass = Assembler::new(AssembleArgs::new());
 
         let mut macros = HashMap::new();
         let mut _m1 = macro_with_pc();

@@ -3,27 +3,25 @@ use crate::cli::AssembleArgs;
 use self::parser::Assembler;
 
 pub mod parser;
-pub mod label;
 
-mod find_op_code;
-mod util;
-mod tokenizer;
-mod expressions;
 mod errors;
+mod expressions;
+mod find_op_code;
+mod label;
+mod tokenizer;
+mod util;
 
 pub fn run_assembler(args: AssembleArgs) -> i32 {
-    let mut assembler = Assembler::new();
-    match assembler.assemble(args.input, args.load_address) {
-        Ok(bytes) => match assembler.write_file(args.output, bytes) {
+    let output = args.output.clone();
+    let mut assembler = Assembler::new(args);
+    match assembler.assemble() {
+        Ok(bytes) => match assembler.write_file(bytes) {
             Ok(_) => 0,
             Err(e) => {
-                error!("Unable to write compiled file: {}", e);
+                println!("{}\n {}", e, output.as_path().display(),);
                 1
             }
         },
-        Err(e) => {
-            error!("Unable to write compiled file: {}", e);
-            1
-        }
+        Err(_) => 1,
     }
 }

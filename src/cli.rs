@@ -12,7 +12,7 @@ pub struct Cli {
 #[derive(Debug, Subcommand)]
 pub enum Commands {
     Run(RunArgs),
-    #[clap(visible_alias = "ass")]
+    #[clap(visible_alias = "asm")]
     Assemble(AssembleArgs),
     #[clap(visible_alias = "dis")]
     Disassemble(DisassembleArgs),
@@ -22,7 +22,7 @@ pub enum Commands {
 #[clap(about = "Run the emulator")]
 pub struct RunArgs {
     #[clap(help = "File to load into memory")]
-    pub file: String,
+    pub file: PathBuf,
     #[clap(long, help = "Positional file should be assembled")]
     pub from_asm: bool,
     #[clap(long, help = "Randomize flags and memory")]
@@ -40,12 +40,22 @@ pub struct AssembleArgs {
     pub input: PathBuf,
     #[clap(short, long, default_value = "a.out", help = "Output filename")]
     pub output: PathBuf,
+    #[clap(long, help = "Add a HLT instruction at the end of the program")]
+    pub add_hlt: bool,
+
     #[clap(
         long,
         default_value = "0",
         help = "Address at which the file will be loaded"
     )]
-    pub load_address: u16,
+    pub load_at: u16,
+
+    #[clap(
+        long,
+        visible_alias = "reg-defs",
+        help = "Include register EQU statements"
+    )]
+    pub register_definitions: bool,
 }
 
 #[derive(Debug, Args)]

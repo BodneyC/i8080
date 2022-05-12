@@ -3,8 +3,8 @@ extern crate log;
 
 use clap::Parser;
 
-use cli::{Cli, Commands};
 use assembler::run_assembler;
+use cli::{Cli, Commands};
 use system::run_system;
 
 mod assembler;
