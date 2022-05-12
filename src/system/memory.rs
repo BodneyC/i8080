@@ -63,6 +63,15 @@ impl Memory {
             *byte = rand::thread_rng().gen();
         }
     }
+
+    pub(crate) fn get_slice(&self, addr: u16, len: u16) -> Vec<u8> {
+        let slice = if addr.wrapping_add(len) < addr {
+            &self.mem[addr as usize..]
+        } else {
+            &self.mem[addr as usize..(addr + len) as usize]
+        };
+        slice.to_vec()
+    }
 }
 
 #[cfg(test)]

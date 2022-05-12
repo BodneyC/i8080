@@ -1,3 +1,11 @@
+// TODO:
+// - Documentation, properly, README too
+// - Timing, HZ, etc.
+// - Integration tests (somehow)
+// - Log level CLI?
+// - Error codes
+// - Disassembler
+
 #[macro_use]
 extern crate log;
 

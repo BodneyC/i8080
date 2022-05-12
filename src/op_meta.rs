@@ -235,77 +235,77 @@ const fn load_op_meta() -> [OpMeta; 0x10b] {
 
     // ------------------------------------------ ACCUMULATOR
 
-    set[0x80] = OpMeta::new_no_args("ADD B", 2, 4);
-    set[0x81] = OpMeta::new_no_args("ADD C", 2, 4);
-    set[0x82] = OpMeta::new_no_args("ADD D", 2, 4);
-    set[0x83] = OpMeta::new_no_args("ADD E", 2, 4);
-    set[0x84] = OpMeta::new_no_args("ADD H", 2, 4);
-    set[0x85] = OpMeta::new_no_args("ADD L", 2, 4);
-    set[0x86] = OpMeta::new_no_args("ADD M", 2, 7);
-    set[0x87] = OpMeta::new_no_args("ADD A", 2, 4);
+    set[0x80] = OpMeta::new_no_args("ADD B", 1, 4);
+    set[0x81] = OpMeta::new_no_args("ADD C", 1, 4);
+    set[0x82] = OpMeta::new_no_args("ADD D", 1, 4);
+    set[0x83] = OpMeta::new_no_args("ADD E", 1, 4);
+    set[0x84] = OpMeta::new_no_args("ADD H", 1, 4);
+    set[0x85] = OpMeta::new_no_args("ADD L", 1, 4);
+    set[0x86] = OpMeta::new_no_args("ADD M", 1, 7);
+    set[0x87] = OpMeta::new_no_args("ADD A", 1, 4);
 
-    set[0x88] = OpMeta::new_no_args("ADC B", 2, 4);
-    set[0x89] = OpMeta::new_no_args("ADC C", 2, 4);
-    set[0x8a] = OpMeta::new_no_args("ADC D", 2, 4);
-    set[0x8b] = OpMeta::new_no_args("ADC E", 2, 4);
-    set[0x8c] = OpMeta::new_no_args("ADC H", 2, 4);
-    set[0x8d] = OpMeta::new_no_args("ADC L", 2, 4);
-    set[0x8e] = OpMeta::new_no_args("ADC M", 2, 7);
-    set[0x8f] = OpMeta::new_no_args("ADC A", 2, 4);
+    set[0x88] = OpMeta::new_no_args("ADC B", 1, 4);
+    set[0x89] = OpMeta::new_no_args("ADC C", 1, 4);
+    set[0x8a] = OpMeta::new_no_args("ADC D", 1, 4);
+    set[0x8b] = OpMeta::new_no_args("ADC E", 1, 4);
+    set[0x8c] = OpMeta::new_no_args("ADC H", 1, 4);
+    set[0x8d] = OpMeta::new_no_args("ADC L", 1, 4);
+    set[0x8e] = OpMeta::new_no_args("ADC M", 1, 7);
+    set[0x8f] = OpMeta::new_no_args("ADC A", 1, 4);
 
-    set[0x90] = OpMeta::new_no_args("SUB B", 2, 4);
-    set[0x91] = OpMeta::new_no_args("SUB C", 2, 4);
-    set[0x92] = OpMeta::new_no_args("SUB D", 2, 4);
-    set[0x93] = OpMeta::new_no_args("SUB E", 2, 4);
-    set[0x94] = OpMeta::new_no_args("SUB H", 2, 4);
-    set[0x95] = OpMeta::new_no_args("SUB L", 2, 4);
-    set[0x96] = OpMeta::new_no_args("SUB M", 2, 7);
-    set[0x97] = OpMeta::new_no_args("SUB A", 2, 4);
+    set[0x90] = OpMeta::new_no_args("SUB B", 1, 4);
+    set[0x91] = OpMeta::new_no_args("SUB C", 1, 4);
+    set[0x92] = OpMeta::new_no_args("SUB D", 1, 4);
+    set[0x93] = OpMeta::new_no_args("SUB E", 1, 4);
+    set[0x94] = OpMeta::new_no_args("SUB H", 1, 4);
+    set[0x95] = OpMeta::new_no_args("SUB L", 1, 4);
+    set[0x96] = OpMeta::new_no_args("SUB M", 1, 7);
+    set[0x97] = OpMeta::new_no_args("SUB A", 1, 4);
 
-    set[0x98] = OpMeta::new_no_args("SBB B", 2, 4);
-    set[0x99] = OpMeta::new_no_args("SBB C", 2, 4);
-    set[0x9a] = OpMeta::new_no_args("SBB D", 2, 4);
-    set[0x9b] = OpMeta::new_no_args("SBB E", 2, 4);
-    set[0x9c] = OpMeta::new_no_args("SBB H", 2, 4);
-    set[0x9d] = OpMeta::new_no_args("SBB L", 2, 4);
-    set[0x9e] = OpMeta::new_no_args("SBB M", 2, 7);
-    set[0x9f] = OpMeta::new_no_args("SBB A", 2, 4);
+    set[0x98] = OpMeta::new_no_args("SBB B", 1, 4);
+    set[0x99] = OpMeta::new_no_args("SBB C", 1, 4);
+    set[0x9a] = OpMeta::new_no_args("SBB D", 1, 4);
+    set[0x9b] = OpMeta::new_no_args("SBB E", 1, 4);
+    set[0x9c] = OpMeta::new_no_args("SBB H", 1, 4);
+    set[0x9d] = OpMeta::new_no_args("SBB L", 1, 4);
+    set[0x9e] = OpMeta::new_no_args("SBB M", 1, 7);
+    set[0x9f] = OpMeta::new_no_args("SBB A", 1, 4);
 
-    set[0xa0] = OpMeta::new_no_args("ANA B", 2, 4);
-    set[0xa1] = OpMeta::new_no_args("ANA C", 2, 4);
-    set[0xa2] = OpMeta::new_no_args("ANA D", 2, 4);
-    set[0xa3] = OpMeta::new_no_args("ANA E", 2, 4);
-    set[0xa4] = OpMeta::new_no_args("ANA H", 2, 4);
-    set[0xa5] = OpMeta::new_no_args("ANA L", 2, 4);
-    set[0xa6] = OpMeta::new_no_args("ANA M", 2, 7);
-    set[0xa7] = OpMeta::new_no_args("ANA A", 2, 4);
+    set[0xa0] = OpMeta::new_no_args("ANA B", 1, 4);
+    set[0xa1] = OpMeta::new_no_args("ANA C", 1, 4);
+    set[0xa2] = OpMeta::new_no_args("ANA D", 1, 4);
+    set[0xa3] = OpMeta::new_no_args("ANA E", 1, 4);
+    set[0xa4] = OpMeta::new_no_args("ANA H", 1, 4);
+    set[0xa5] = OpMeta::new_no_args("ANA L", 1, 4);
+    set[0xa6] = OpMeta::new_no_args("ANA M", 1, 7);
+    set[0xa7] = OpMeta::new_no_args("ANA A", 1, 4);
 
-    set[0xa8] = OpMeta::new_no_args("XRA B", 2, 4);
-    set[0xa9] = OpMeta::new_no_args("XRA C", 2, 4);
-    set[0xaa] = OpMeta::new_no_args("XRA D", 2, 4);
-    set[0xab] = OpMeta::new_no_args("XRA E", 2, 4);
-    set[0xac] = OpMeta::new_no_args("XRA H", 2, 4);
-    set[0xad] = OpMeta::new_no_args("XRA L", 2, 4);
-    set[0xae] = OpMeta::new_no_args("XRA M", 2, 7);
-    set[0xaf] = OpMeta::new_no_args("XRA A", 2, 4);
+    set[0xa8] = OpMeta::new_no_args("XRA B", 1, 4);
+    set[0xa9] = OpMeta::new_no_args("XRA C", 1, 4);
+    set[0xaa] = OpMeta::new_no_args("XRA D", 1, 4);
+    set[0xab] = OpMeta::new_no_args("XRA E", 1, 4);
+    set[0xac] = OpMeta::new_no_args("XRA H", 1, 4);
+    set[0xad] = OpMeta::new_no_args("XRA L", 1, 4);
+    set[0xae] = OpMeta::new_no_args("XRA M", 1, 7);
+    set[0xaf] = OpMeta::new_no_args("XRA A", 1, 4);
 
-    set[0xb0] = OpMeta::new_no_args("ORA B", 2, 4);
-    set[0xb1] = OpMeta::new_no_args("ORA C", 2, 4);
-    set[0xb2] = OpMeta::new_no_args("ORA D", 2, 4);
-    set[0xb3] = OpMeta::new_no_args("ORA E", 2, 4);
-    set[0xb4] = OpMeta::new_no_args("ORA H", 2, 4);
-    set[0xb5] = OpMeta::new_no_args("ORA L", 2, 4);
-    set[0xb6] = OpMeta::new_no_args("ORA M", 2, 7);
-    set[0xb7] = OpMeta::new_no_args("ORA A", 2, 4);
+    set[0xb0] = OpMeta::new_no_args("ORA B", 1, 4);
+    set[0xb1] = OpMeta::new_no_args("ORA C", 1, 4);
+    set[0xb2] = OpMeta::new_no_args("ORA D", 1, 4);
+    set[0xb3] = OpMeta::new_no_args("ORA E", 1, 4);
+    set[0xb4] = OpMeta::new_no_args("ORA H", 1, 4);
+    set[0xb5] = OpMeta::new_no_args("ORA L", 1, 4);
+    set[0xb6] = OpMeta::new_no_args("ORA M", 1, 7);
+    set[0xb7] = OpMeta::new_no_args("ORA A", 1, 4);
 
-    set[0xb8] = OpMeta::new_no_args("CMP B", 2, 4);
-    set[0xb9] = OpMeta::new_no_args("CMP C", 2, 4);
-    set[0xba] = OpMeta::new_no_args("CMP D", 2, 4);
-    set[0xbb] = OpMeta::new_no_args("CMP E", 2, 4);
-    set[0xbc] = OpMeta::new_no_args("CMP H", 2, 4);
-    set[0xbd] = OpMeta::new_no_args("CMP L", 2, 4);
-    set[0xbe] = OpMeta::new_no_args("CMP M", 2, 7);
-    set[0xbf] = OpMeta::new_no_args("CMP A", 2, 4);
+    set[0xb8] = OpMeta::new_no_args("CMP B", 1, 4);
+    set[0xb9] = OpMeta::new_no_args("CMP C", 1, 4);
+    set[0xba] = OpMeta::new_no_args("CMP D", 1, 4);
+    set[0xbb] = OpMeta::new_no_args("CMP E", 1, 4);
+    set[0xbc] = OpMeta::new_no_args("CMP H", 1, 4);
+    set[0xbd] = OpMeta::new_no_args("CMP L", 1, 4);
+    set[0xbe] = OpMeta::new_no_args("CMP M", 1, 7);
+    set[0xbf] = OpMeta::new_no_args("CMP A", 1, 4);
 
     // ------------------------------------------ SPECIALS
 

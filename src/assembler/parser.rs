@@ -310,7 +310,7 @@ impl Assembler {
                 }
             }
         }
-        if self.args.add_hlt {
+        if self.args.hlt {
             bytes.push(0x76);
         }
         Ok(bytes)
@@ -793,7 +793,7 @@ mod tests {
                 output: PathBuf::new(),
                 load_at: 0,
                 register_definitions: false,
-                add_hlt: false,
+                hlt: false,
             }
         }
     }

@@ -31,6 +31,8 @@ pub struct RunArgs {
     pub load_at: Option<u16>,
     #[clap(long, help = "Disable the console device")]
     pub no_console: bool,
+    #[clap(short, long, help = "Run the emulator in a prompt")]
+    pub interactive: bool,
 }
 
 #[derive(Debug, Args)]
@@ -41,7 +43,7 @@ pub struct AssembleArgs {
     #[clap(short, long, default_value = "a.out", help = "Output filename")]
     pub output: PathBuf,
     #[clap(long, help = "Add a HLT instruction at the end of the program")]
-    pub add_hlt: bool,
+    pub hlt: bool,
 
     #[clap(
         long,

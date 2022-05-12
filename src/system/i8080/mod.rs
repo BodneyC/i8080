@@ -19,11 +19,14 @@ pub struct I8080 {
     memory: Memory,
     cycles: u64,
 
-    halted: bool,
+    pub halted: bool,
     interrupt_flip_flop: bool,
     interrupt_op_code: Option<u8>,
     rx_devices: Vec<RxDevice>,
     tx_devices: Vec<TxDevice>,
+
+    pub interactive: bool,
+    pub current_state: String,
 }
 
 impl I8080 {
@@ -38,6 +41,8 @@ impl I8080 {
             interrupt_op_code: None,
             rx_devices,
             tx_devices,
+            interactive: false,
+            current_state: String::new(),
         }
     }
 
@@ -60,9 +65,17 @@ impl I8080 {
         let meta: OpMeta = I8080_OP_META[inst as usize];
         self.execute(inst);
         self.cycles += meta.cycles as u64;
+        if self.interactive {
+            self.current_state = self.fmt_instruction(inst, meta, is_interrupt);
+        }
         self.log_cycle(inst, meta, is_interrupt);
         if !is_interrupt {
-            self.registers.pc += meta.width() as u16;
+            if self.registers.pc as u16 + meta.width() as u16 > u8::MAX.into() {
+                warn!("PC larger than address space, halting");
+                self.halt()
+            } else {
+                self.registers.pc += meta.width() as u16;
+            }
         }
     }
 
@@ -82,6 +95,10 @@ impl I8080 {
         self.flags.from_byte(rand::thread_rng().gen());
         self.registers.randomize();
         self.memory.randomize();
+    }
+
+    pub(crate) fn get_slice(&self, addr: u16, len: u16) -> Vec<u8> {
+        self.memory.get_slice(addr, len)
     }
 
     /// Get the instruction at PC
@@ -113,6 +130,14 @@ impl I8080 {
             "Inst {{ cycle: {}, dis: '{}', hex: [{}], interrupt: {} }}",
             self.cycles, op, inst_hex, is_interrupt,
         )
+    }
+
+    pub(crate) fn debug_flags(&self) -> String {
+        format!("{:?}", self.flags)
+    }
+
+    pub(crate) fn debug_registers(&self) -> String {
+        format!("{:?}", self.registers)
     }
 
     fn log_components(&self) {
