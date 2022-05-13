@@ -1,5 +1,7 @@
 use super::*;
 
+use crate::util;
+
 impl I8080 {
     pub(crate) fn execute(&mut self, inst: u8) {
         match inst {
@@ -723,7 +725,6 @@ impl I8080 {
     }
 }
 
-// TODO: Just a shit tonne of tests...
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1,5 +1,7 @@
-use super::errors::{OpParseError, ParserError};
-use super::find_op_code;
+use super::{
+    errors::{OpParseError, ParserError},
+    find_op_code,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LineMeta {

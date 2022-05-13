@@ -1,23 +1,30 @@
-use std::num::ParseIntError;
-use std::path::PathBuf;
-use std::sync::mpsc::{self, Receiver, Sender};
-use std::{fs, thread};
-
-use rustyline::error::ReadlineError;
-
-use crate::assembler::parser::Assembler;
-use crate::cli::{AssembleArgs, RunArgs};
-
-use self::device::console_device::{special_chars, ConsoleDevice};
-use self::device::TxDevice;
-use self::i8080::I8080;
-
 mod device;
 mod flags;
 mod i8080;
 mod memory;
 mod registers;
-mod util;
+
+use std::{
+    fs,
+    num::ParseIntError,
+    path::PathBuf,
+    sync::mpsc::{self, Receiver, Sender},
+    thread,
+};
+
+use rustyline::error::ReadlineError;
+
+use crate::{
+    assembler::{disassemble::disassemble_instruction, parser::Assembler},
+    cli::{AssembleArgs, RunArgs},
+    status_codes::{E_ASSEMBLER, E_IO_ERROR, E_SUCCESS},
+};
+
+use self::{
+    device::console_device::{special_chars, ConsoleDevice},
+    device::TxDevice,
+    i8080::I8080,
+};
 
 pub fn run_system(args: RunArgs) -> i32 {
     let mut console: Option<ConsoleDevice> = None;
@@ -38,7 +45,7 @@ pub fn run_system(args: RunArgs) -> i32 {
     let load_address = args.load_at.unwrap_or(0);
     let filename_plain = args.file.as_path().display();
 
-    let program = if args.from_asm {
+    let program = if args.assemble {
         let mut assembler = Assembler::new(AssembleArgs {
             input: args.file.clone(),
             output: PathBuf::new(),
@@ -49,7 +56,7 @@ pub fn run_system(args: RunArgs) -> i32 {
         match assembler.assemble() {
             Ok(bytes) => bytes,
             Err(_) => {
-                return 1;
+                return E_ASSEMBLER;
             }
         }
     } else {
@@ -57,7 +64,7 @@ pub fn run_system(args: RunArgs) -> i32 {
             Ok(bytes) => bytes,
             Err(e) => {
                 println!("Failed to read file: {}\n\n{}", filename_plain, e);
-                return 1;
+                return E_IO_ERROR;
             }
         }
     };
@@ -75,14 +82,14 @@ pub fn run_system(args: RunArgs) -> i32 {
         run_interactive(&mut i8080);
         i8080.halt();
     } else {
-        i8080.run();
+        i8080.run(args.emulate_clock_speed);
     }
 
     if let Some(th) = th_cons {
         th.join().unwrap();
     }
 
-    0
+    E_SUCCESS
 }
 
 macro_rules! continue_on_err {
@@ -124,10 +131,10 @@ fn run_interactive(i8080: &mut I8080) {
             }
         };
         let mut input = raw_input.split_whitespace();
-        let cmd = input.nth(0).unwrap_or("");
+        let cmd = input.nth(0).unwrap_or("").to_lowercase();
         // Input is an iterator, so the above consumes the first
         let args: Vec<&str> = input.collect();
-        match cmd {
+        match cmd.as_str() {
             "h" | "?" | "help" => prompt_help(),
             "c" | "cycle" => {
                 if i8080.halted {
@@ -139,20 +146,43 @@ fn run_interactive(i8080: &mut I8080) {
             }
             "f" | "flags" => println!("{}", i8080.debug_flags()),
             "r" | "registers" => println!("{}", i8080.debug_registers()),
+            "i" | "interrupt" => {
+                if args.len() != 1 {
+                    println!("Interrupt takes one arg");
+                    continue;
+                }
+                let inst = continue_on_err!(parse_number(args.get(0).unwrap())) as u8;
+                i8080.issue_interrupt(inst);
+                println!("Interrupt issues, instruction {:#02x}", inst);
+            }
             "m" | "mem" | "memory" => {
                 if args.len() > 2 {
-                    println!("Too many args: {:?}", args);
+                    println!("Up to two args required: {:?}", args);
                     continue;
                 }
-                if args.len() <= 1 {
-                    println!("Too few args: {:?}", args);
-                    continue;
-                }
-                let addr = continue_on_err!(parse_number(args.get(0).unwrap()));
-                let len = continue_on_err!(parse_number(args.get(1).unwrap()));
-                println!("{:?}", i8080.get_slice(addr, len))
+                let addr = if let Some(arg) = args.get(0) {
+                    continue_on_err!(parse_number(arg))
+                } else {
+                    i8080.get_pc()
+                };
+                let len = continue_on_err!(parse_number(args.get(1).unwrap_or(&"1")));
+                println!("{:?}", i8080.get_memory_slice(addr, len))
             }
-            "e" | "exit" => break,
+            "d" | "dis" | "disassemble" => {
+                if args.len() > 1 {
+                    println!("Zero or one args required: {:?}", args);
+                    continue;
+                }
+                let addr = if let Some(arg) = args.get(0) {
+                    continue_on_err!(parse_number(arg))
+                } else {
+                    i8080.get_pc()
+                };
+                let (s, _) =
+                    continue_on_err!(disassemble_instruction(&i8080.get_memory_slice(addr, 3), 0));
+                println!("{}", s);
+            }
+            "q" | "quit" | "e" | "exit" => break,
             "" => continue,
             s => println!("Unknown command: {}", s),
         }
@@ -180,16 +210,17 @@ fn prompt_help() {
     println!(
         r#"
 h | ? | help) show this information
-e | exit)     exit the prompt
-
+q | quit | e | exit) exit the prompt
 c | cycle) cycle the cpu
-
-f | flags)     print current state of flags
+f | flags) print current state of flags
 r | registers) print current state of registers
-
+i | interrupt) issue interrupt
+    u8: op code
+d | dis | disassemble) disassemble next instruction
+    u16: address [default: PC]
 m | mem | memory) print values in memory
-    u16: location
-    u16: n bytes
+    u16: address [default: PC]
+    u16: n bytes [default: 1]
 "#
     )
 }

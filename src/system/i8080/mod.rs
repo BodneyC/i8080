@@ -1,17 +1,19 @@
 extern crate rand;
 
+use std::{thread, time};
+
 use rand::Rng;
 
 use crate::op_meta::{OpMeta, I8080_OP_META};
-use crate::system::flags::Flags;
-use crate::system::memory::Memory;
-use crate::system::registers::Registers;
 
-use super::util;
+use super::{
+    device::{RxDevice, TxDevice},
+    flags::Flags,
+    memory::Memory,
+    registers::Registers,
+};
 
 use log::Level;
-
-use crate::system::device::{RxDevice, TxDevice};
 
 pub struct I8080 {
     registers: Registers,
@@ -25,9 +27,15 @@ pub struct I8080 {
     rx_devices: Vec<RxDevice>,
     tx_devices: Vec<TxDevice>,
 
+    from_time: time::SystemTime,
+
     pub interactive: bool,
     pub current_state: String,
 }
+
+const FREQUENCY: u64 = 2_000_000;
+const STEP_MS: u64 = 10;
+const CYCLES_PER_STEP: u64 = (FREQUENCY as f64 / (1000_f64 / STEP_MS as f64)) as u64;
 
 impl I8080 {
     pub fn new(rx_devices: Vec<RxDevice>, tx_devices: Vec<TxDevice>) -> Self {
@@ -43,13 +51,29 @@ impl I8080 {
             tx_devices,
             interactive: false,
             current_state: String::new(),
+            from_time: time::SystemTime::now(),
         }
     }
 
-    pub fn run(&mut self) {
+    fn sleep_for_hz(&mut self) {
+        if self.cycles > CYCLES_PER_STEP {
+            self.cycles -= CYCLES_PER_STEP;
+            let d = time::SystemTime::now()
+                .duration_since(self.from_time)
+                .unwrap();
+            let s = u64::from(STEP_MS.saturating_sub(d.as_millis() as u64));
+            debug!("CPU: sleep {} millis", s);
+            thread::sleep(time::Duration::from_millis(s));
+            self.from_time = time::SystemTime::now();
+        }
+    }
+
+    pub fn run(&mut self, emulate_clock_speed: bool) {
         while !self.halted {
             self.cycle();
-            // TODO: Timing, Hz, etc.
+            if emulate_clock_speed {
+                self.sleep_for_hz();
+            }
         }
     }
 
@@ -57,8 +81,9 @@ impl I8080 {
         let is_interrupt: bool = self.interrupt_flip_flop && self.interrupt_op_code.is_some();
         let inst: u8 = if is_interrupt {
             self.interrupt_flip_flop = false;
+            let inst = self.interrupt_op_code.unwrap();
             self.interrupt_op_code = None;
-            self.interrupt_op_code.unwrap()
+            inst
         } else {
             self.pc_inst()
         };
@@ -79,9 +104,6 @@ impl I8080 {
         }
     }
 
-    // NOTE: Not sure how to split ownership between some thread in `run` and
-    //   some caller of this
-    #[allow(dead_code)]
     pub fn issue_interrupt(&mut self, inst: u8) {
         self.interrupt_flip_flop = true;
         self.interrupt_op_code = Some(inst);
@@ -97,8 +119,12 @@ impl I8080 {
         self.memory.randomize();
     }
 
-    pub(crate) fn get_slice(&self, addr: u16, len: u16) -> Vec<u8> {
+    pub(crate) fn get_memory_slice(&self, addr: u16, len: u16) -> Vec<u8> {
         self.memory.get_slice(addr, len)
+    }
+
+    pub(crate) fn get_pc(&self) -> u16 {
+        self.registers.pc
     }
 
     /// Get the instruction at PC
@@ -121,14 +147,19 @@ impl I8080 {
         let mut op: String = meta.op.to_owned();
         if meta.argb {
             inst_hex.push_str(&format!(" {:02x}", self.pc_argb()));
-            op.push_str(&format!(" {:#04x}", self.pc_argb()));
+            op.push_str(&format!(", {:#04x}", self.pc_argb()));
         } else if meta.argw {
             inst_hex.push_str(&format!(" {:04x}", self.pc_argw()));
-            op.push_str(&format!(" {:#06x}", self.pc_argw()));
+            op.push_str(&format!(", {:#06x}", self.pc_argw()));
         }
+        let address = if is_interrupt {
+            "n/a".to_string()
+        } else {
+            format!("{}", self.registers.pc - meta.width() as u16)
+        };
         format!(
-            "Inst {{ cycle: {}, dis: '{}', hex: [{}], interrupt: {} }}",
-            self.cycles, op, inst_hex, is_interrupt,
+            "Inst {{ addr: {}, dis: \"{}\", hex: [{}], interrupt: {} }}",
+            address, op, inst_hex, is_interrupt,
         )
     }
 

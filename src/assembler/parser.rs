@@ -1,15 +1,19 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::{fs, io};
+use std::fs;
+use std::io;
 
 use crate::cli::AssembleArgs;
 use crate::op_meta::I8080_OP_META;
+use crate::util;
 
-use super::errors::{AssemblerError, CodeGenError, ParserError};
-use super::expressions::parser::{parse_expression, parse_expression_u16, ExprOutput};
-use super::label::Label;
-use super::tokenizer::{self, LineMeta};
-use super::{find_op_code, util};
+use super::{
+    errors::{AssemblerError, CodeGenError, ParserError},
+    expressions::parser::{parse_expression, parse_expression_u16, ExprOutput},
+    find_op_code,
+    label::Label,
+    tokenizer::{self, LineMeta},
+};
 
 #[derive(Debug, Clone)]
 pub struct Macro {
@@ -90,23 +94,18 @@ impl Assembler {
     /// regenerate the macro code specific to that call - a better fixup method could exist
     /// but that seems like effort I don't have
     fn gen_macros(&mut self) -> Result<(), CodeGenError> {
+        self.erroring_line = None;
         for (_, _macro) in self.macros.borrow_mut().iter_mut() {
             for line in _macro.lines.iter_mut() {
-                match self.gen_for_line(line, line.address, true) {
-                    Ok((mut bytes, uses_pc)) => {
-                        if bytes.len() != line.width {
-                            return Err(CodeGenError::UnexpectedLength(line.width, bytes.len()));
-                        }
-                        if uses_pc {
-                            line.uses_pc = true;
-                        }
-                        _macro.bytes.append(&mut bytes);
-                    }
-                    Err(e) => {
-                        self.erroring_line = Some(LineMeta::erroring(line));
-                        return Err(e);
-                    }
+                self.erroring_line = Some(LineMeta::erroring(line));
+                let (mut bytes, uses_pc) = self.gen_for_line(line, line.address, true)?;
+                if bytes.len() != line.width {
+                    return Err(CodeGenError::UnexpectedLength(line.width, bytes.len()));
                 }
+                if uses_pc {
+                    line.uses_pc = true;
+                }
+                _macro.bytes.append(&mut bytes);
                 if line.uses_pc {
                     _macro.uses_pc = true;
                 }
@@ -266,10 +265,8 @@ impl Assembler {
                     ParserError::MacroCallInMacroUsesSp,
                 ))
             } else {
-                match self.gen_for_macro_at(_macro, address) {
-                    Ok(bytes) => Ok((bytes, _macro.uses_pc)),
-                    Err(e) => Err(e),
-                }
+                let bytes = self.gen_for_macro_at(_macro, address)?;
+                Ok((bytes, _macro.uses_pc))
             }
         } else {
             trace!(
@@ -293,21 +290,16 @@ impl Assembler {
     /// Because of the ORG instruction, we preallocate the vec so cannot `.append` and must instead
     /// `[line.address]` into it
     fn generate_prog(&mut self) -> Result<Vec<u8>, CodeGenError> {
-        // self.expression_parser.lexer.labels = self.labels.clone();
+        self.erroring_line = None;
         let mut bytes = vec![0; self.prog_width as usize];
         for line in self.lines.borrow().iter() {
-            match self.gen_for_line(line, line.address, false) {
-                Ok((line_bytes, _)) => {
-                    if line_bytes.len() != line.width {
-                        return Err(CodeGenError::UnexpectedLength(line.width, bytes.len()));
-                    }
-                    for (idx, byte) in line_bytes.iter().enumerate() {
-                        bytes[line.address as usize + idx] = *byte;
-                    }
-                }
-                Err(e) => {
-                    return Err(e);
-                }
+            self.erroring_line = Some(LineMeta::erroring(&line));
+            let (line_bytes, _) = self.gen_for_line(line, line.address, false)?;
+            if line_bytes.len() != line.width {
+                return Err(CodeGenError::UnexpectedLength(line.width, bytes.len()));
+            }
+            for (idx, byte) in line_bytes.iter().enumerate() {
+                bytes[line.address as usize + idx] = *byte;
             }
         }
         if self.args.hlt {
@@ -365,13 +357,13 @@ impl Assembler {
         let mut highest_address: u16 = load_address;
 
         for line in lines.iter() {
+            self.erroring_line = Some(LineMeta::erroring(line));
             // The IFs control `skip`, if an IF resolves to `false`, we skip until ENDIF
             if let Some(inst) = &line.inst {
                 match inst.as_str() {
                     "IF" => {
                         if inside_if {
                             debug!("@{:<03} IF found without previous ENDIF", line.line_no);
-                            self.erroring_line = Some(LineMeta::erroring(&line));
                             return Err(ParserError::NestedIf);
                         }
                         let first_arg = line.args_list[0].to_string();
@@ -384,7 +376,6 @@ impl Assembler {
                     "ENDIF" => {
                         if !inside_if {
                             debug!("@{:<03} ENDIF found without previous IF", line.line_no);
-                            self.erroring_line = Some(LineMeta::erroring(&line));
                             return Err(ParserError::NotInIf);
                         }
                         debug!("@{:<03} ENDIF reached", line.line_no);
@@ -413,7 +404,6 @@ impl Assembler {
                         line.line_no, line.inst, line.label
                     );
                     if line.inst.as_ref().unwrap().as_str() != "SET" {
-                        self.erroring_line = Some(LineMeta::erroring(&line));
                         return Err(ParserError::LabelAlreadyDefined(
                             label.to_string(),
                             self.labels.get(label).unwrap().clone(),
@@ -489,7 +479,6 @@ impl Assembler {
                     debug!("@{:<03} macro {:?} to be loaded", line.line_no, line.label);
                     if let Some(name) = current_macro_name {
                         debug!("@{:<03} MACRO '{}' found within MACRO", line.line_no, name);
-                        self.erroring_line = Some(LineMeta::erroring(&line));
                         return Err(ParserError::NestedMacro);
                     }
                     macros.insert(label.to_string(), Macro::new());
@@ -499,7 +488,6 @@ impl Assembler {
                 "ENDM" => {
                     if current_macro_name.is_none() {
                         debug!("@{:<03} ENDM found with no MACRO", line.line_no);
-                        self.erroring_line = Some(LineMeta::erroring(&line));
                         return Err(ParserError::NotInMacro);
                     }
                     debug!("@{:<03} ENDM reached", line.line_no);
@@ -510,7 +498,6 @@ impl Assembler {
                 "ORG" => {
                     if let Some(name) = current_macro_name {
                         debug!("@{:<03} ORG used in MACRO '{}'", line.line_no, name);
-                        self.erroring_line = Some(LineMeta::erroring(&line));
                         return Err(ParserError::OrigInMacro);
                     }
                     let arg = &line.args_list[0];
@@ -519,7 +506,6 @@ impl Assembler {
                             Ok((val, _)) => val,
                             Err(e) => {
                                 debug!("@{:<03} invalid expr '{}'", line.line_no, arg);
-                                self.erroring_line = Some(LineMeta::erroring(&line));
                                 return Err(ParserError::ExpressionError(e));
                             }
                         };
@@ -546,7 +532,6 @@ impl Assembler {
                         "@{:<03} {:?} requires a label but none is present",
                         line.line_no, line.inst
                     );
-                    self.erroring_line = Some(LineMeta::erroring(&line));
                     return Err(ParserError::OperationRequiresLabel(inst_name.clone()));
                 }
 
@@ -558,7 +543,6 @@ impl Assembler {
                             "@{:<03} vararg {:?} contains no args",
                             line.line_no, line.inst,
                         );
-                        self.erroring_line = Some(LineMeta::erroring(&line));
                         return Err(ParserError::NoArgsForVariadic);
                     } else {
                         debug!(
@@ -575,7 +559,6 @@ impl Assembler {
                             "@{:<03} {:?} expected {} args (args: {:?})",
                             line.line_no, line.inst, inst_meta.asm_arg_count, line.args_list,
                         );
-                        self.erroring_line = Some(LineMeta::erroring(&line));
                         return Err(ParserError::WrongNumberOfArgs(
                             inst_meta.asm_arg_count,
                             line.args_list.len(),
@@ -598,7 +581,6 @@ impl Assembler {
 
                 if line.args_list.len() != 0 {
                     debug!("@{:<03} {:?} macro has arguments", line.line_no, line.inst);
-                    self.erroring_line = Some(LineMeta::erroring(&line));
                     return Err(ParserError::WrongNumberOfArgs(0, line.args_list.len()));
                 }
 
@@ -609,7 +591,6 @@ impl Assembler {
                             "@{:<03} {:?} macro is called within its definition",
                             line.line_no, line.inst
                         );
-                        self.erroring_line = Some(LineMeta::erroring(&line));
                         return Err(ParserError::RecursiveMacro);
                     }
                 }
@@ -625,7 +606,6 @@ impl Assembler {
                     }
                     None => {
                         debug!("@{:<03} macro {:?} not found", line.line_no, line.inst);
-                        self.erroring_line = Some(LineMeta::erroring(&line));
                         return Err(ParserError::MacroUseBeforeCreation);
                     }
                 }
@@ -639,7 +619,6 @@ impl Assembler {
                 match inst_name.as_str() {
                     "DB" | "DW" | "DS" => {
                         debug!("@{:<03} {} found in macro", line.line_no, inst_name);
-                        self.erroring_line = Some(LineMeta::erroring(&line));
                         return Err(ParserError::DefineInMacro);
                     }
                     _ => {}
@@ -647,7 +626,6 @@ impl Assembler {
                 // Cannot use an IF/ENDIF pair in a macro (implementation, not spec)
                 if inside_if {
                     debug!("@{:<03} IF found within macro", line.line_no);
-                    self.erroring_line = Some(LineMeta::erroring(&line));
                     return Err(ParserError::IfAndMacroMix);
                 }
 
@@ -750,16 +728,14 @@ impl Assembler {
     }
 
     fn load_file(&mut self) -> Result<Vec<LineMeta>, AssemblerError> {
+        self.erroring_line = None;
         let mut line_vec: Vec<LineMeta> = vec![];
         match util::read_lines(&self.args.input) {
             Ok(lines) => {
                 for (line_no, line_res) in lines.enumerate() {
                     if let Ok(line) = line_res {
-                        let line_opt = tokenizer::tokenize(&line).map_err(|e| {
-                            self.erroring_line =
-                                Some(LineMeta::from_raw(line_no, line.to_string()));
-                            e
-                        })?;
+                        self.erroring_line = Some(LineMeta::from_raw(line_no, line.to_string()));
+                        let line_opt = tokenizer::tokenize(&line)?;
                         if let Some(mut line_meta) = line_opt {
                             line_meta.line_no = line_no;
                             line_vec.push(line_meta);
@@ -1457,7 +1433,4 @@ mod tests {
             ]
         );
     }
-
-    // TODO:
-    // - IF that is ignored in practice
 }

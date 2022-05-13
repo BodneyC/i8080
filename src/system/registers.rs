@@ -18,13 +18,6 @@ impl Registers {
         Default::default()
     }
 
-    // pub fn debug_line(&self) -> String {
-    //     format!(
-    //         "PC[{:04x}] SP[{:04x}] A[{:02x}] B[{:02x}] C[{:02x}] D[{:02x}] E[{:02x}] H[{:02x}] L[{:02x}]",
-    //         self.pc, self.sp, self.a, self.b, self.c, self.d, self.e, self.h, self.l
-    //     )
-    // }
-
     pub(crate) fn get_bc(&self) -> u16 {
         (self.b as u16) << 8 | self.c as u16
     }
@@ -57,7 +50,7 @@ impl Registers {
         self.set_de(rand::thread_rng().gen());
         self.set_hl(rand::thread_rng().gen());
         self.a = rand::thread_rng().gen();
-        self.pc = rand::thread_rng().gen();
+        // self.pc = rand::thread_rng().gen();
         self.sp = rand::thread_rng().gen();
     }
 }

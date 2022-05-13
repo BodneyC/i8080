@@ -1,13 +1,14 @@
 use std::collections::HashMap;
 
-use crate::assembler::expressions::shunting_yard;
 use crate::assembler::label::Label;
-use crate::assembler::util;
+use crate::util;
 
-use super::errors::ExpressionError;
-use super::lexer::{ExprFlags, Lexer};
-use super::rpn;
-use super::token::Token;
+use super::{
+    errors::ExpressionError,
+    lexer::{ExprFlags, Lexer},
+    rpn, shunting_yard,
+    token::Token,
+};
 
 pub type ExprOutput = (Vec<u8>, ExprFlags);
 

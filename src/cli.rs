@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use clap::{self, Args, Parser, Subcommand};
 
 #[derive(Debug, Parser)]
-#[clap(name = "i8080", about = "A shitty I8080 emulator", long_about = None)]
+#[clap(name = "i8080", about = "An I8080 emulator", long_about = None)]
 pub struct Cli {
     #[clap(subcommand)]
     pub command: Commands,
@@ -23,16 +23,18 @@ pub enum Commands {
 pub struct RunArgs {
     #[clap(help = "File to load into memory")]
     pub file: PathBuf,
-    #[clap(long, help = "Positional file should be assembled")]
-    pub from_asm: bool,
-    #[clap(long, help = "Randomize flags and memory")]
-    pub randomize: bool,
-    #[clap(long, help = "Load program at given address")]
+    #[clap(short, long, help = "Load program at given address")]
     pub load_at: Option<u16>,
-    #[clap(long, help = "Disable the console device")]
-    pub no_console: bool,
+    #[clap(short, long, help = "Randomize registers and memory")]
+    pub randomize: bool,
     #[clap(short, long, help = "Run the emulator in a prompt")]
     pub interactive: bool,
+    #[clap(short, long, help = "Provided file requires assembly")]
+    pub assemble: bool,
+    #[clap(long, help = "Disable the console device")]
+    pub no_console: bool,
+    #[clap(long, help = "Sleep occasionally to match 2HZ")]
+    pub emulate_clock_speed: bool,
 }
 
 #[derive(Debug, Args)]
@@ -64,7 +66,7 @@ pub struct AssembleArgs {
 #[clap(about = "Disassemble a file into ASM")]
 pub struct DisassembleArgs {
     #[clap(help = "Bin file to disassemble")]
-    pub infile: String,
-    #[clap(short, long, default_value = "a.asm", help = "Output filename")]
-    pub outfile: String,
+    pub infile: PathBuf,
+    #[clap(short, long, help = "Output filename")]
+    pub outfile: Option<PathBuf>,
 }

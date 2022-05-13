@@ -175,3 +175,30 @@ impl fmt::Display for OpParseError {
         }
     }
 }
+
+#[derive(Debug)]
+pub enum DisassembleError {
+    NoRemainingBytes(usize),                      // addr, width
+    NotEnoughBytes(usize, &'static str, Vec<u8>), // addr, inst, ~3 bytes
+    UnknownError(usize, Vec<u8>),                 // addr, ~3 bytes
+}
+
+impl std::error::Error for DisassembleError {}
+
+impl fmt::Display for DisassembleError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::NoRemainingBytes(addr) => write!(f, "@{} No remaining bytes", addr),
+            Self::NotEnoughBytes(addr, op, v) => {
+                write!(
+                    f,
+                    "@{} Not enough bytes for instruction [{}]\n  {:?}...",
+                    addr, op, v
+                )
+            }
+            Self::UnknownError(addr, v) => {
+                write!(f, "@{} Unknown disassembly error\n  {:?}...", addr, v)
+            }
+        }
+    }
+}
