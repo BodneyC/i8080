@@ -1,4 +1,4 @@
-pub mod parser;
+pub mod assemble;
 pub mod disassemble;
 
 mod errors;
@@ -12,16 +12,17 @@ use std::io::Write;
 
 use crate::{
     cli::{AssembleArgs, DisassembleArgs},
-    status_codes::{E_ASSEMBLER, E_IO_ERROR, E_SUCCESS, E_DISASSEMBLER}, util::read_file_to_vec_u8,
+    status_codes::{E_ASSEMBLER, E_DISASSEMBLER, E_IO_ERROR, E_SUCCESS},
+    util::read_file_to_vec_u8,
 };
 
-use self::{parser::Assembler, disassemble::disassemble_vec};
+use self::{assemble::Assembler, disassemble::disassemble_vec};
 
 pub fn run_assembler(args: AssembleArgs) -> i32 {
     let output = args.output.clone();
     let mut assembler = Assembler::new(args);
     match assembler.assemble() {
-        Ok(bytes) => match assembler.write_file(bytes) {
+        Ok(bytes) => match assembler.write(bytes) {
             Ok(_) => E_SUCCESS,
             Err(e) => {
                 println!("{}\n {}", e, output.as_path().display(),);

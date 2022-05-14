@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::assembler::label::Label;
+use crate::asm::label::Label;
 use crate::util;
 
 use super::{

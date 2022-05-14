@@ -678,7 +678,7 @@ impl Assembler {
         }
     }
 
-    pub fn write_file(&self, bytes: Vec<u8>) -> Result<(), io::Error> {
+    pub fn write(&self, bytes: Vec<u8>) -> Result<(), io::Error> {
         fs::write(&self.args.output, &bytes)
     }
 

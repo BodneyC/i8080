@@ -3,7 +3,7 @@ use std::isize;
 use std::iter;
 use std::str;
 
-use crate::assembler::label::Label;
+use crate::asm::label::Label;
 
 use super::errors::ExpressionError;
 use super::token::Token;

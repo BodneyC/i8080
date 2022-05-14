@@ -6,18 +6,19 @@
 #[macro_use]
 extern crate log;
 
-use clap::Parser;
+pub mod asm;
+pub mod cli;
+pub mod sys;
 
-use assembler::{run_assembler, run_disassmbler};
-use cli::{Cli, Commands};
-use system::run_system;
-
-mod assembler;
-mod cli;
 mod op_meta;
 mod status_codes;
-mod system;
 mod util;
+
+use clap::Parser;
+
+use crate::asm::{run_assembler, run_disassmbler};
+use crate::cli::{Cli, Commands};
+use crate::sys::run_system;
 
 fn main() {
     env_logger::init();

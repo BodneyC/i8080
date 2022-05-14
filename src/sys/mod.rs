@@ -1,6 +1,7 @@
+pub mod i8080;
+
 mod device;
 mod flags;
-mod i8080;
 mod memory;
 mod registers;
 
@@ -15,7 +16,7 @@ use std::{
 use rustyline::error::ReadlineError;
 
 use crate::{
-    assembler::{disassemble::disassemble_instruction, parser::Assembler},
+    asm::{disassemble::disassemble_instruction, assemble::Assembler},
     cli::{AssembleArgs, RunArgs},
     status_codes::{E_ASSEMBLER, E_IO_ERROR, E_SUCCESS},
 };

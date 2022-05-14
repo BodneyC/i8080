@@ -1,6 +1,6 @@
 use std::{fmt, io};
 
-use crate::assembler::label::Label;
+use crate::asm::label::Label;
 
 use super::expressions::errors::ExpressionError;
 
