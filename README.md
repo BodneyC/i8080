@@ -34,6 +34,6 @@ Which opens a prompt.
 
 ## Docs
 
-Link pending
+See the [docs](https://bodneyc.github.io/i8080) for more.
 
 <!-- markdownlint-disable-file MD013 -->
