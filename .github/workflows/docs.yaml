@@ -10,6 +10,9 @@ jobs:
   docs:
     runs-on: ubuntu-latest
 
+    permissions:
+      contents: write
+
     steps:
 
       - uses: actions/checkout@v2
@@ -33,7 +36,7 @@ jobs:
             exit 0
           fi
 
-          git config --global user.name 'bodneyc-ci'
+          git config --global user.name 'bodneyc'
           git config --global user.email 'bodneyc@users.noreply.github.com'
 
           git add ./docs
