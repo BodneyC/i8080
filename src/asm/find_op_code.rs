@@ -1,4 +1,4 @@
-use crate::op_meta::I8080_OP_META;
+use crate::meta::I8080_OP_META;
 
 use super::errors::OpParseError;
 

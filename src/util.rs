@@ -44,6 +44,18 @@ pub fn read_file_to_vec_u8<P: AsRef<Path>>(filename: P) -> Result<Vec<u8>, io::E
 }
 
 #[cfg(test)]
+pub mod test {
+    use std::path::{Path, PathBuf};
+
+    pub fn rsc<P: AsRef<Path>>(filename: P) -> PathBuf {
+        let mut d = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        d.push("rsc");
+        d.push(filename);
+        d
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

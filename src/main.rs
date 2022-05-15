@@ -1,14 +1,39 @@
+//! An Intel 8080 emulator and assembler
+//!
+//! # Examples
+//!
+//! Compile the ASM and include register to integer defs
+//!  
+//! ```sh
+//! $ i8080 asm --register-definitions ./rsc/asm/hello-world.asm
+//! ```
+//!
+//! Run the resulting binary
+//!  
+//! ```sh
+//! $ i8080 run a.out
+//! hello world
+//! ```
+
 // TODO:
 // - Documentation, properly, README too
-// - Integration tests (somehow)
-// - Log level CLI?
-// - Disassemble with str indicator? (e.g. MOV L, B == 'h')
+
+pub mod asm;
+pub mod cli;
+pub mod ecodes;
+pub mod sys;
+
+mod meta;
+mod util;
+
+#[macro_use]
+extern crate log;
 
 use clap::Parser;
 
-use rs_8080::asm::{run_assembler, run_disassmbler};
-use rs_8080::cli::{Cli, Commands};
-use rs_8080::sys::run_system;
+use asm::{run_assembler, run_disassmbler};
+use cli::{Cli, Commands};
+use sys::run_system;
 
 fn main() {
     env_logger::init();

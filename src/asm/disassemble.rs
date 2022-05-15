@@ -1,4 +1,4 @@
-use crate::op_meta::I8080_OP_META;
+use crate::meta::I8080_OP_META;
 use crate::util::vec_u8_to_u16;
 
 use super::errors::DisassembleError;

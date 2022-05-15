@@ -4,7 +4,7 @@ use std::fs;
 use std::io;
 
 use crate::cli::AssembleArgs;
-use crate::op_meta::I8080_OP_META;
+use crate::meta::I8080_OP_META;
 use crate::util;
 
 use super::{

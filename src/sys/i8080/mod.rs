@@ -5,7 +5,7 @@ use std::{thread, time};
 use rand::Rng;
 
 use crate::{
-    op_meta::{OpMeta, I8080_OP_META},
+    meta::{OpMeta, I8080_OP_META},
     util,
 };
 
