@@ -1,4 +1,9 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source of the Rust file `src&#x2F;asm&#x2F;assemble.rs`."><meta name="keywords" content="rust, rustlang, rust-lang"><title>assemble.rs - source</title><link rel="stylesheet" type="text/css" href="../../../normalize.css"><link rel="stylesheet" type="text/css" href="../../../rustdoc.css" id="mainThemeStyle"><link rel="stylesheet" type="text/css" href="../../../light.css"  id="themeStyle"><link rel="stylesheet" type="text/css" href="../../../dark.css" disabled ><link rel="stylesheet" type="text/css" href="../../../ayu.css" disabled ><script id="default-settings" ></script><script src="../../../storage.js"></script><script src="../../../crates.js"></script><noscript><link rel="stylesheet" href="../../../noscript.css"></noscript><link rel="alternate icon" type="image/png" href="../../../favicon-16x16.png"><link rel="alternate icon" type="image/png" href="../../../favicon-32x32.png"><link rel="icon" type="image/svg+xml" href="../../../favicon.svg"><style type="text/css">#crate-search{background-image:url("../../../down-arrow.svg");}</style></head><body class="rustdoc source"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="sidebar-menu" role="button">&#9776;</div><a href='../../../i8080/index.html'><div class='logo-container rust-logo'><img src='../../../rust-logo.png' alt='logo'></div></a></nav><div class="theme-picker"><button id="theme-picker" aria-label="Pick another theme!" aria-haspopup="menu" title="themes"><img width="18" height="18" alt="Pick another theme!" src="../../../brush.svg"></button><div id="theme-choices" role="menu"></div></div><nav class="sub"><form class="search-form"><div class="search-container"><div><select id="crate-search"><option value="All crates">All crates</option></select><input class="search-input" name="search" disabled autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"></div><button type="button" id="help-button" title="help">?</button><a id="settings-menu" href="../../../settings.html" title="settings"><img width="18" height="18" alt="Change settings" src="../../../wheel.svg"></a></div></form></nav><section id="main" class="content"><div class="example-wrap"><pre class="line-numbers"><span id="1">   1</span>
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source of the Rust file `src/asm/assemble.rs`."><meta name="keywords" content="rust, rustlang, rust-lang"><title>assemble.rs - source</title><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../SourceSerif4-Regular.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../FiraSans-Regular.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../FiraSans-Medium.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../SourceCodePro-Regular.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../SourceSerif4-Bold.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../SourceCodePro-Semibold.ttf.woff2"><link rel="stylesheet" type="text/css" href="../../../normalize.css"><link rel="stylesheet" type="text/css" href="../../../rustdoc.css" id="mainThemeStyle"><link rel="stylesheet" type="text/css" href="../../../ayu.css" disabled><link rel="stylesheet" type="text/css" href="../../../dark.css" disabled><link rel="stylesheet" type="text/css" href="../../../light.css" id="themeStyle"><script id="default-settings" ></script><script src="../../../storage.js"></script><script src="../../../crates.js"></script><script defer src="../../../main.js"></script><script defer src="../../../source-script.js"></script><script defer src="../../../source-files.js"></script>
+    <noscript><link rel="stylesheet" href="../../../noscript.css"></noscript><link rel="alternate icon" type="image/png" href="../../../favicon-16x16.png"><link rel="alternate icon" type="image/png" href="../../../favicon-32x32.png"><link rel="icon" type="image/svg+xml" href="../../../favicon.svg"></head><body class="rustdoc source"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="mobile-topbar"><button class="sidebar-menu-toggle">&#9776;</button><a class="sidebar-logo" href="../../../i8080/index.html"><div class="logo-container"><img class="rust-logo" src="../../../rust-logo.svg" alt="logo"></div>
+        </a><h2 class="location"></h2>
+    </nav>
+    <nav class="sidebar"><a class="sidebar-logo" href="../../../i8080/index.html"><div class="logo-container"><img class="rust-logo" src="../../../rust-logo.svg" alt="logo"></div>
+        </a></nav><main><div class="width-limiter"><div class="sub-container"><a class="sub-logo-container" href="../../../i8080/index.html"><img class="rust-logo" src="../../../rust-logo.svg" alt="logo"></a><nav class="sub"><div class="theme-picker hidden"><button id="theme-picker" aria-label="Pick another theme!" aria-haspopup="menu" title="themes"><img width="22" height="22" alt="Pick another theme!" src="../../../brush.svg"></button><div id="theme-choices" role="menu"></div></div><form class="search-form"><div class="search-container"><span></span><input class="search-input" name="search" autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"><button type="button" id="help-button" title="help">?</button><a id="settings-menu" href="../../../settings.html" title="settings"><img width="22" height="22" alt="Change settings" src="../../../wheel.svg"></a></div></form></nav></div><section id="main-content" class="content"><div class="example-wrap"><pre class="line-numbers"><span id="1">   1</span>
 <span id="2">   2</span>
 <span id="3">   3</span>
 <span id="4">   4</span>
@@ -1508,6 +1513,31 @@
 <span id="1508">1508</span>
 <span id="1509">1509</span>
 <span id="1510">1510</span>
+<span id="1511">1511</span>
+<span id="1512">1512</span>
+<span id="1513">1513</span>
+<span id="1514">1514</span>
+<span id="1515">1515</span>
+<span id="1516">1516</span>
+<span id="1517">1517</span>
+<span id="1518">1518</span>
+<span id="1519">1519</span>
+<span id="1520">1520</span>
+<span id="1521">1521</span>
+<span id="1522">1522</span>
+<span id="1523">1523</span>
+<span id="1524">1524</span>
+<span id="1525">1525</span>
+<span id="1526">1526</span>
+<span id="1527">1527</span>
+<span id="1528">1528</span>
+<span id="1529">1529</span>
+<span id="1530">1530</span>
+<span id="1531">1531</span>
+<span id="1532">1532</span>
+<span id="1533">1533</span>
+<span id="1534">1534</span>
+<span id="1535">1535</span>
 </pre><pre class="rust"><code><span class="doccomment">//! 8080 assembler</span>
 <span class="doccomment">//!</span>
 <span class="doccomment">//! There are some parts of this which are a little off-spec however all seem to fucntion as</span>
@@ -1590,6 +1620,31 @@
 <span class="doccomment">//! DB &#39;some-string$&#39; ; define 12 bytes of the ASCII values of the string</span>
 <span class="doccomment">//! DB 0x45, 0x52     ; define 2 bytes of the value 0x4552</span>
 <span class="doccomment">//! ```</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! # Examples</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! To assemble a file to a specific output file</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! ```sh</span>
+<span class="doccomment">//! i8080 asm \</span>
+<span class="doccomment">//!     --output ./hello-world.bin \</span>
+<span class="doccomment">//!     --register-definitions \</span>
+<span class="doccomment">//!     ./rsc/asm/hello-world.asm</span>
+<span class="doccomment">//! ```</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! The flag `--register-definitions` is used to include some `EQU` statements which are fairly</span>
+<span class="doccomment">//! standard, these are</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! ```asm</span>
+<span class="doccomment">//! B: EQU 0</span>
+<span class="doccomment">//! C: EQU 1</span>
+<span class="doccomment">//! D: EQU 2</span>
+<span class="doccomment">//! E: EQU 3</span>
+<span class="doccomment">//! H: EQU 4</span>
+<span class="doccomment">//! L: EQU 5</span>
+<span class="doccomment">//! M: EQU 6</span>
+<span class="doccomment">//! A: EQU 7</span>
+<span class="doccomment">//! ```</span>
 
 <span class="kw">use</span> <span class="ident">std::cell::RefCell</span>;
 <span class="kw">use</span> <span class="ident">std::collections::HashMap</span>;
@@ -1661,7 +1716,7 @@
         }
     }
 
-    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">assemble</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">u8</span><span class="op">&gt;</span>, <span class="ident">AssemblerError</span><span class="op">&gt;</span> {
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">assemble</span>(<span class="kw-2">&amp;mut</span> <span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">u8</span><span class="op">&gt;</span>, <span class="ident">AssemblerError</span><span class="op">&gt;</span> {
         <span class="kw">if</span> <span class="self">self</span>.<span class="ident">args</span>.<span class="ident">register_definitions</span> {
             <span class="self">self</span>.<span class="ident">labels</span> <span class="op">=</span> <span class="ident">get_reg_defs</span>();
         }
@@ -1686,7 +1741,7 @@
     <span class="doccomment">/// When the real code comes to load in the macro, they should check if this flag is set and</span>
     <span class="doccomment">/// regenerate the macro code specific to that call - a better fixup method could exist</span>
     <span class="doccomment">/// but that seems like effort I don&#39;t have</span>
-    <span class="kw">fn</span> <span class="ident">gen_macros</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span><span class="op">&lt;</span>(), <span class="ident">CodeGenError</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">gen_macros</span>(<span class="kw-2">&amp;mut</span> <span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span><span class="op">&lt;</span>(), <span class="ident">CodeGenError</span><span class="op">&gt;</span> {
         <span class="self">self</span>.<span class="ident">erroring_line</span> <span class="op">=</span> <span class="prelude-val">None</span>;
         <span class="kw">for</span> (<span class="kw">_</span>, <span class="ident">_macro</span>) <span class="kw">in</span> <span class="self">self</span>.<span class="ident">macros</span>.<span class="ident">borrow_mut</span>().<span class="ident">iter_mut</span>() {
             <span class="kw">for</span> <span class="ident">line</span> <span class="kw">in</span> <span class="ident">_macro</span>.<span class="ident">lines</span>.<span class="ident">iter_mut</span>() {
@@ -1698,7 +1753,7 @@
                 <span class="kw">if</span> <span class="ident">uses_pc</span> {
                     <span class="ident">line</span>.<span class="ident">uses_pc</span> <span class="op">=</span> <span class="bool-val">true</span>;
                 }
-                <span class="ident">_macro</span>.<span class="ident">bytes</span>.<span class="ident">append</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">bytes</span>);
+                <span class="ident">_macro</span>.<span class="ident">bytes</span>.<span class="ident">append</span>(<span class="kw-2">&amp;mut</span> <span class="ident">bytes</span>);
                 <span class="kw">if</span> <span class="ident">line</span>.<span class="ident">uses_pc</span> {
                     <span class="ident">_macro</span>.<span class="ident">uses_pc</span> <span class="op">=</span> <span class="bool-val">true</span>;
                 }
@@ -1875,14 +1930,14 @@
         <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">bytes</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">u8</span><span class="op">&gt;</span> <span class="op">=</span> <span class="ident">Vec::new</span>();
         <span class="kw">for</span> <span class="ident">line</span> <span class="kw">in</span> <span class="ident">_macro</span>.<span class="ident">lines</span>.<span class="ident">iter</span>() {
             <span class="kw">let</span> (<span class="kw-2">mut</span> <span class="ident">_bytes</span>, <span class="kw">_</span>) <span class="op">=</span> <span class="self">self</span>.<span class="ident">gen_for_line</span>(<span class="ident">line</span>, <span class="ident">line</span>.<span class="ident">address</span> <span class="op">+</span> <span class="ident">addr</span>, <span class="bool-val">true</span>)<span class="question-mark">?</span>;
-            <span class="ident">bytes</span>.<span class="ident">append</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">_bytes</span>);
+            <span class="ident">bytes</span>.<span class="ident">append</span>(<span class="kw-2">&amp;mut</span> <span class="ident">_bytes</span>);
         }
         <span class="prelude-val">Ok</span>(<span class="ident">bytes</span>)
     }
 
     <span class="doccomment">/// Because of the ORG instruction, we preallocate the vec so cannot `.append` and must instead</span>
     <span class="doccomment">/// `[line.address]` into it</span>
-    <span class="kw">fn</span> <span class="ident">generate_prog</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">u8</span><span class="op">&gt;</span>, <span class="ident">CodeGenError</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">generate_prog</span>(<span class="kw-2">&amp;mut</span> <span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">u8</span><span class="op">&gt;</span>, <span class="ident">CodeGenError</span><span class="op">&gt;</span> {
         <span class="self">self</span>.<span class="ident">erroring_line</span> <span class="op">=</span> <span class="prelude-val">None</span>;
         <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">bytes</span> <span class="op">=</span> <span class="macro">vec!</span>[<span class="number">0</span>; <span class="self">self</span>.<span class="ident">prog_width</span> <span class="kw">as</span> <span class="ident">usize</span>];
         <span class="kw">for</span> <span class="ident">line</span> <span class="kw">in</span> <span class="self">self</span>.<span class="ident">lines</span>.<span class="ident">borrow</span>().<span class="ident">iter</span>() {
@@ -1902,7 +1957,7 @@
     }
 
     <span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">test</span>)]</span>
-    <span class="kw">fn</span> <span class="ident">parse</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">lines</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">LineMeta</span><span class="op">&gt;</span>) -&gt; <span class="prelude-ty">Result</span><span class="op">&lt;</span>(), <span class="ident">ParserError</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">parse</span>(<span class="kw-2">&amp;mut</span> <span class="self">self</span>, <span class="ident">lines</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">LineMeta</span><span class="op">&gt;</span>) -&gt; <span class="prelude-ty">Result</span><span class="op">&lt;</span>(), <span class="ident">ParserError</span><span class="op">&gt;</span> {
         <span class="self">self</span>.<span class="ident">parse_at</span>(<span class="ident">lines</span>, <span class="number">0</span>)
     }
 
@@ -1936,7 +1991,7 @@
     <span class="doccomment">/// - Macros are sized</span>
     <span class="doccomment">/// - IFs&#39; conditions are known</span>
     <span class="doccomment">/// - The relevant lines are separated from the rest</span>
-    <span class="kw">fn</span> <span class="ident">parse_at</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">lines</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">LineMeta</span><span class="op">&gt;</span>, <span class="ident">load_address</span>: <span class="ident">u16</span>) -&gt; <span class="prelude-ty">Result</span><span class="op">&lt;</span>(), <span class="ident">ParserError</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">parse_at</span>(<span class="kw-2">&amp;mut</span> <span class="self">self</span>, <span class="ident">lines</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">LineMeta</span><span class="op">&gt;</span>, <span class="ident">load_address</span>: <span class="ident">u16</span>) -&gt; <span class="prelude-ty">Result</span><span class="op">&lt;</span>(), <span class="ident">ParserError</span><span class="op">&gt;</span> {
         <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">resolved_lines</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">LineMeta</span><span class="op">&gt;</span> <span class="op">=</span> <span class="ident">Vec::new</span>();
 
         <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">macros</span>: <span class="ident">HashMap</span><span class="op">&lt;</span><span class="ident">String</span>, <span class="ident">Macro</span><span class="op">&gt;</span> <span class="op">=</span> <span class="ident">HashMap::new</span>();
@@ -2311,7 +2366,7 @@
         }
     }
 
-    <span class="kw">fn</span> <span class="ident">load_file</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">LineMeta</span><span class="op">&gt;</span>, <span class="ident">AssemblerError</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">load_file</span>(<span class="kw-2">&amp;mut</span> <span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">LineMeta</span><span class="op">&gt;</span>, <span class="ident">AssemblerError</span><span class="op">&gt;</span> {
         <span class="self">self</span>.<span class="ident">erroring_line</span> <span class="op">=</span> <span class="prelude-val">None</span>;
         <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">line_vec</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">LineMeta</span><span class="op">&gt;</span> <span class="op">=</span> <span class="macro">vec!</span>[];
         <span class="kw">match</span> <span class="ident">util::read_lines</span>(<span class="kw-2">&amp;</span><span class="self">self</span>.<span class="ident">args</span>.<span class="ident">input</span>) {
@@ -2332,7 +2387,7 @@
         }
     }
 
-    <span class="kw">fn</span> <span class="ident">print_err_msg</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">e</span>: <span class="kw-2">&amp;</span><span class="ident">AssemblerError</span>) {
+    <span class="kw">fn</span> <span class="ident">print_err_msg</span>(<span class="kw-2">&amp;mut</span> <span class="self">self</span>, <span class="ident">e</span>: <span class="kw-2">&amp;</span><span class="ident">AssemblerError</span>) {
         <span class="macro">println!</span>(<span class="string">&quot;{}&quot;</span>, <span class="ident">e</span>);
         <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">line</span>) <span class="op">=</span> <span class="kw-2">&amp;</span><span class="self">self</span>.<span class="ident">erroring_line</span> {
             <span class="macro">println!</span>(<span class="string">&quot;\n  {: &lt;3}| {}&quot;</span>, <span class="ident">line</span>.<span class="ident">line_no</span>, <span class="ident">line</span>.<span class="ident">raw_line</span>);
@@ -3019,6 +3074,5 @@
     }
 }
 </code></pre></div>
-</section><section id="search" class="content hidden"></section><div id="rustdoc-vars" data-root-path="../../../" data-current-crate="i8080" data-search-index-js="../../../search-index.js" data-search-js="../../../search.js"></div>
-    <script src="../../../main.js"></script><script src="../../../source-script.js"></script><script src="../../../source-files.js"></script>
+</section><section id="search" class="content hidden"></section></div></main><div id="rustdoc-vars" data-root-path="../../../" data-current-crate="i8080" data-themes="ayu,dark,light" data-resource-suffix="" data-rustdoc-version="1.60.0 (7737e0b5c 2022-04-04)" ></div>
 </body></html>
