@@ -1,1 +1,0 @@
-initSidebarItems({"mod":[["special_chars",""]],"struct":[["ConsoleDevice",""]]});
