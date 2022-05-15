@@ -27,7 +27,7 @@ jobs:
 
       - name: Copy docs to branch
         run: |-
-          git checkout origin/docs
+          git checkout -b docs origin/docs
           rm -rf ./docs
           cp -r ./target/doc ./docs
 
