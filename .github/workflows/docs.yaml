@@ -1,0 +1,41 @@
+on:
+  push:
+    branches:
+      - main
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - uses: actions/checkout@v2
+
+      - name: Build docs
+        run: |-
+          cargo doc --no-deps
+          echo "<meta http-equiv=\"refresh\" content=\"0; url=i8080/index.html\">" > target/doc/index.html
+          echo "theme: jekyll-theme-cayman" > target/doc/_config.yml
+
+      - name: Copy docs to branch
+        run: |-
+          git checkout docs
+          rm -rf ./docs
+          cp -r ./target/doc ./docs
+
+      - name: Push to branch
+        run: |-
+          if [[ -z "$(git status --porcelain)" ]]; then
+            echo "Nothing to commit, exiting"
+            exit 0
+          fi
+
+          git config --global user.name 'bodneyc-ci'
+          git config --global user.email 'bodneyc@users.noreply.github.com'
+
+          git add ./docs
+          git commit -m "ci: updated docs"
+          git push
