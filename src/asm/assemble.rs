@@ -80,6 +80,31 @@
 //! DB 'some-string$' ; define 12 bytes of the ASCII values of the string
 //! DB 0x45, 0x52     ; define 2 bytes of the value 0x4552
 //! ```
+//!
+//! # Examples
+//!
+//! To assemble a file to a specific output file
+//!
+//! ```sh
+//! i8080 asm \
+//!     --output ./hello-world.bin \
+//!     --register-definitions \
+//!     ./rsc/asm/hello-world.asm
+//! ```
+//!
+//! The flag `--register-definitions` is used to include some `EQU` statements which are fairly
+//! standard, these are
+//!
+//! ```asm
+//! B: EQU 0
+//! C: EQU 1
+//! D: EQU 2
+//! E: EQU 3
+//! H: EQU 4
+//! L: EQU 5
+//! M: EQU 6
+//! A: EQU 7
+//! ```
 
 use std::cell::RefCell;
 use std::collections::HashMap;

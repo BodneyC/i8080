@@ -25,6 +25,18 @@
 //! MOV L, H
 //! MOV H, H
 //! ```
+//!
+//! # Examples
+//!
+//! To disassemble a file to a specific output file
+//!
+//! ```sh
+//! $ i8080 dis rsc/bin/simple.bin
+//! MVI A, 0xde
+//! MVI B, 0xad
+//! ADD B
+//! HLT
+//! ```
 
 use crate::meta::I8080_OP_META;
 use crate::util::vec_u8_to_u16;
