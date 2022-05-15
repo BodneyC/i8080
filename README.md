@@ -9,8 +9,8 @@ Then I figured with an assembler should come a disassembler.
 ## Install and Build
 
 ```sh
-git clone https://github.com/BodneyC/8080-rs.git
-cd 8080-rs
+git clone https://github.com/BodneyC/i8080.git
+cd i8080
 cargo install --path .
 ```
 
