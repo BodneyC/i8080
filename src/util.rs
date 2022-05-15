@@ -12,6 +12,14 @@ pub fn u16_to_vec_u8(v: u16) -> Vec<u8> {
     vec![(v & 0xff) as u8, (v >> 8) as u8]
 }
 
+pub fn char_width_one(val: u8) -> char {
+    if val >= 0x20 && val < 0x7f {
+        val as char
+    } else {
+        ' '
+    }
+}
+
 pub fn vec_u8_to_u16(v: &[u8]) -> u16 {
     if v.is_empty() {
         0x00

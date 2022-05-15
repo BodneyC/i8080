@@ -9,6 +9,7 @@ use std::sync::mpsc::Receiver;
 // I don't know another way to namespace some consts... maybe bad practice but who can really tell
 // these days
 pub mod special_chars {
+    pub const NUL: u8 = 0x00;
     pub const EOT: u8 = 0x04;
     pub const ETB: u8 = 0x17;
     pub const BEL: u8 = 0x07;
@@ -43,11 +44,13 @@ impl ConsoleDevice {
         let mut idx: usize = 0;
         loop {
             if let Ok(byte) = self.rx.recv() {
+                debug!("Console device received [{}]", byte);
                 match byte {
                     // EOT, end of tranmission
                     special_chars::EOT => break,
                     // ETB, end of tranmission block (using as flush)
-                    special_chars::ETB => {
+                    // NUL, null terminator for string (using as flush)
+                    special_chars::ETB | special_chars::NUL => {
                         println!("{}", String::from_utf8_lossy(&buf));
                         buf.clear();
                         idx = 0;

@@ -12,7 +12,7 @@ use std::io::Write;
 
 use crate::{
     cli::{AssembleArgs, DisassembleArgs},
-    status_codes::{E_ASSEMBLER, E_DISASSEMBLER, E_IO_ERROR, E_SUCCESS},
+    ecodes::{E_ASSEMBLER, E_DISASSEMBLER, E_IO_ERROR, E_SUCCESS},
     util::read_file_to_vec_u8,
 };
 
@@ -46,10 +46,10 @@ macro_rules! ok_or_return {
 }
 
 pub fn run_disassmbler(args: DisassembleArgs) -> i32 {
-    let v_u8 = ok_or_return!(read_file_to_vec_u8(args.infile), E_IO_ERROR);
+    let v_u8 = ok_or_return!(read_file_to_vec_u8(args.input), E_IO_ERROR);
     let v_strings = ok_or_return!(disassemble_vec(&v_u8), E_DISASSEMBLER);
     let content = v_strings.join("\n");
-    if let Some(filename) = args.outfile {
+    if let Some(filename) = args.output {
         let mut f = ok_or_return!(File::create(filename), E_IO_ERROR);
         ok_or_return!(write!(f, "{}", content), E_IO_ERROR);
     } else {

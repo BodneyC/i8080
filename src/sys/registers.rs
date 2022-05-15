@@ -13,6 +13,7 @@ pub struct Registers {
     pub pc: u16,
 }
 
+/// Register-pair operations are loaded (and thus read) as big endian for some reason
 impl Registers {
     pub fn new() -> Self {
         Default::default()

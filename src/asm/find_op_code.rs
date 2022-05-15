@@ -41,11 +41,11 @@ pub fn from_args_and_sp_psw(
         "RST" => with_all_regs(0xc7, arg0, 0, extra),
 
         "LXI" => with_word_regs(0x01, arg0, sp),
-        "DAD" => with_word_regs(0x01, arg0, sp),
-        "INX" => with_word_regs(0x01, arg0, sp),
-        "DCX" => with_word_regs(0x01, arg0, sp),
-        "PUSH" => with_word_regs(0x01, arg0, psw),
-        "POP" => with_word_regs(0x01, arg0, psw),
+        "DAD" => with_word_regs(0x09, arg0, sp),
+        "INX" => with_word_regs(0x03, arg0, sp),
+        "DCX" => with_word_regs(0x0b, arg0, sp),
+        "PUSH" => with_word_regs(0xc5, arg0, psw),
+        "POP" => with_word_regs(0xc1, arg0, psw),
 
         "LDAX" => with_b_or_d(0x01, arg0, extra),
         "STAX" => with_b_or_d(0x01, arg0, extra),

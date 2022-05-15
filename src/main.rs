@@ -2,23 +2,13 @@
 // - Documentation, properly, README too
 // - Integration tests (somehow)
 // - Log level CLI?
-
-#[macro_use]
-extern crate log;
-
-pub mod asm;
-pub mod cli;
-pub mod sys;
-
-mod op_meta;
-mod status_codes;
-mod util;
+// - Disassemble with str indicator? (e.g. MOV L, B == 'h')
 
 use clap::Parser;
 
-use crate::asm::{run_assembler, run_disassmbler};
-use crate::cli::{Cli, Commands};
-use crate::sys::run_system;
+use rs_8080::asm::{run_assembler, run_disassmbler};
+use rs_8080::cli::{Cli, Commands};
+use rs_8080::sys::run_system;
 
 fn main() {
     env_logger::init();

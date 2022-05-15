@@ -4,7 +4,10 @@ use std::{thread, time};
 
 use rand::Rng;
 
-use crate::op_meta::{OpMeta, I8080_OP_META};
+use crate::{
+    op_meta::{OpMeta, I8080_OP_META},
+    util,
+};
 
 use super::{
     device::{RxDevice, TxDevice},
@@ -88,13 +91,15 @@ impl I8080 {
             self.pc_inst()
         };
         let meta: OpMeta = I8080_OP_META[inst as usize];
+        let pc = self.registers.pc;
         self.execute(inst);
+        let pc_changed = self.registers.pc != pc;
         self.cycles += meta.cycles as u64;
-        if self.interactive {
-            self.current_state = self.fmt_instruction(inst, meta, is_interrupt);
+        if self.interactive || log_enabled!(Level::Debug) {
+            self.current_state = self.fmt_instruction(inst, meta, pc, is_interrupt);
         }
-        self.log_cycle(inst, meta, is_interrupt);
-        if !is_interrupt {
+        self.log_cycle();
+        if !pc_changed && !is_interrupt {
             if self.registers.pc as u16 + meta.width() as u16 > u8::MAX.into() {
                 warn!("PC larger than address space, halting");
                 self.halt()
@@ -139,36 +144,36 @@ impl I8080 {
 
     /// Get the word argument at PC+1
     fn pc_argw(&self) -> u16 {
-        self.memory.read_word(self.registers.pc + 1)
+        self.memory.read_word_little_endian(self.registers.pc + 1)
     }
 
-    fn fmt_instruction(&self, inst: u8, meta: OpMeta, is_interrupt: bool) -> String {
+    fn fmt_instruction(&self, inst: u8, meta: OpMeta, pc: u16, is_interrupt: bool) -> String {
         let mut inst_hex: String = format!("{:02x}", inst);
         let mut op: String = meta.op.to_owned();
         if meta.argb {
-            inst_hex.push_str(&format!(" {:02x}", self.pc_argb()));
-            op.push_str(&format!(", {:#04x}", self.pc_argb()));
+            let argb = self.memory.read_byte(pc + 1);
+            inst_hex.push_str(&format!(" {:02x}", argb));
+            if meta.asm_arg_count == 2 {
+                op.push_str(",");
+            }
+            op.push_str(&format!(" {:#04x}", argb));
         } else if meta.argw {
-            inst_hex.push_str(&format!(" {:04x}", self.pc_argw()));
-            op.push_str(&format!(", {:#06x}", self.pc_argw()));
+            let argw = self.memory.read_word_little_endian(self.registers.pc + 1);
+            inst_hex.push_str(&format!(" {:04x}", argw));
+            if meta.asm_arg_count == 2 {
+                op.push_str(",");
+            }
+            op.push_str(&format!(" {:#06x}", argw));
         }
         let address = if is_interrupt {
             "n/a".to_string()
         } else {
-            format!("{}", self.registers.pc - meta.width() as u16)
+            format!("{:#04x}", pc as u16)
         };
         format!(
             "Inst {{ addr: {}, dis: \"{}\", hex: [{}], interrupt: {} }}",
             address, op, inst_hex, is_interrupt,
         )
-    }
-
-    pub(crate) fn debug_flags(&self) -> String {
-        format!("{:?}", self.flags)
-    }
-
-    pub(crate) fn debug_registers(&self) -> String {
-        format!("{:?}", self.registers)
     }
 
     fn log_components(&self) {
@@ -178,11 +183,66 @@ impl I8080 {
         }
     }
 
-    fn log_cycle(&self, inst: u8, meta: OpMeta, is_interrupt: bool) {
+    fn log_cycle(&self) {
         if log_enabled!(Level::Debug) {
-            debug!("{}", self.fmt_instruction(inst, meta, is_interrupt));
+            debug!("{}", self.current_state);
             self.log_components();
         }
+    }
+
+    /// Example of the output as the format string is not particularly clear...:
+    ///
+    ///    ┌─────────────────────────┐      ┌────────────┐
+    /// PC │ 0x0000                  │      │ Sign:   0  │
+    ///    ├─────────────────────────┤      ├────────────┤
+    /// SP │ 0xba5f                  │      │ Zero:   0  │
+    ///    ├────────────┬────────────┤      ├────────────┤
+    /// B  │ 0x63 ('c') │ 0x53 ('S') │ C    │ Aux:    0  │
+    ///    ├────────────┼────────────┤      ├────────────┤
+    /// D  │ 0xcc (' ') │ 0x48 ('H') │ E    │ Parity: 1  │
+    ///    ├────────────┼────────────┤      ├────────────┤
+    /// H  │ 0x74 ('t') │ 0x1a (' ') │ L    │ Carry:  0  │
+    ///    ├────────────┼────────────┘      └────────────┘
+    /// A  │ 0xee (' ') │
+    ///    └────────────┘
+    pub fn describe_system(&self) -> String {
+        format!(
+            "   ┌─────────────────────────┐      ┌────────────┐
+PC │ {:#06x}                  │      │ Sign:   {}  │
+   ├─────────────────────────┤      ├────────────┤ 
+SP │ {:#06x}                  │      │ Zero:   {}  │
+   ├────────────┬────────────┤      ├────────────┤ 
+B  │ {:#04x} ('{}') │ {:#04x} ('{}') │ C    │ Aux:    {}  │
+   ├────────────┼────────────┤      ├────────────┤ 
+D  │ {:#04x} ('{}') │ {:#04x} ('{}') │ E    │ Parity: {}  │
+   ├────────────┼────────────┤      ├────────────┤ 
+H  │ {:#04x} ('{}') │ {:#04x} ('{}') │ L    │ Carry:  {}  │
+   ├────────────┼────────────┘      └────────────┘
+A  │ {:#04x} ('{}') │
+   └────────────┘\
+",
+            self.registers.pc,
+            self.flags.sign as i32,
+            self.registers.sp,
+            self.flags.zero as i32,
+            self.registers.b,
+            util::char_width_one(self.registers.b),
+            self.registers.c,
+            util::char_width_one(self.registers.c),
+            self.flags.aux_carry as i32,
+            self.registers.d,
+            util::char_width_one(self.registers.d),
+            self.registers.e,
+            util::char_width_one(self.registers.e),
+            self.flags.parity as i32,
+            self.registers.h,
+            util::char_width_one(self.registers.h),
+            self.registers.l,
+            util::char_width_one(self.registers.l),
+            self.flags.carry as i32,
+            self.registers.a,
+            util::char_width_one(self.registers.a),
+        )
     }
 }
 

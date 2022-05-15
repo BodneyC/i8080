@@ -33,11 +33,11 @@ impl Memory {
         }
     }
 
-    pub fn read_word(&self, addr: u16) -> u16 {
+    pub fn read_word_big_endian(&self, addr: u16) -> u16 {
         (self.read_byte(addr) as u16) << 8 | self.read_byte(addr + 1) as u16
     }
 
-    pub fn read_word_big_endian(&self, addr: u16) -> u16 {
+    pub fn read_word_little_endian(&self, addr: u16) -> u16 {
         (self.read_byte(addr + 1) as u16) << 8 | self.read_byte(addr) as u16
     }
 
@@ -48,12 +48,12 @@ impl Memory {
         }
     }
 
-    pub fn write_word(&mut self, addr: u16, val: u16) {
+    pub fn write_word_big_endian(&mut self, addr: u16, val: u16) {
         self.write_byte(addr, (val >> 8) as u8);
-        self.write_byte(addr + 1, (val & 8) as u8);
+        self.write_byte(addr + 1, (val & 0xff) as u8);
     }
 
-    pub fn write_word_big_endian(&mut self, addr: u16, val: u16) {
+    pub fn write_word_little_endian(&mut self, addr: u16, val: u16) {
         self.write_byte(addr + 1, (val >> 8) as u8);
         self.write_byte(addr, val as u8);
     }

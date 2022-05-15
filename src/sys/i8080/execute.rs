@@ -30,7 +30,9 @@ impl I8080 {
             // ------------------------------------------ LOAD/STORE
             0x0a => self.registers.a = self.memory.read_byte(self.registers.get_bc()), // LDAX B
             0x1a => self.registers.a = self.memory.read_byte(self.registers.get_de()), // LDAX D
-            0x2a => self.registers.set_hl(self.memory.read_word(self.pc_argw())),      // LHLD
+            0x2a => self
+                .registers
+                .set_hl(self.memory.read_word_little_endian(self.pc_argw())), // LHLD
             0x3a => self.registers.a = self.memory.read_byte(self.pc_argw()),          // LDA
 
             // STx
@@ -42,7 +44,7 @@ impl I8080 {
                 .write_byte(self.registers.get_de(), self.registers.a), // STAX D
             0x22 => self
                 .memory
-                .write_word(self.pc_argw(), self.registers.get_hl()), // SHLD
+                .write_word_big_endian(self.pc_argw(), self.registers.get_hl()), // SHLD
             0x32 => self.memory.write_byte(self.pc_argw(), self.registers.a), // STA
 
             // ------------------------------------------ ROTATE
@@ -622,9 +624,9 @@ impl I8080 {
     /// Exchange the value pointed to by the stack pointer with the value of
     /// the HL register
     fn xthl(&mut self) {
-        let indirect: u16 = self.memory.read_word_big_endian(self.registers.sp);
+        let indirect: u16 = self.memory.read_word_little_endian(self.registers.sp);
         self.memory
-            .write_word_big_endian(self.registers.sp, self.registers.get_hl());
+            .write_word_little_endian(self.registers.sp, self.registers.get_hl());
         self.registers.set_hl(indirect);
     }
 
@@ -735,13 +737,13 @@ mod tests {
         i8080.load(
             0x00,
             vec![
-                0x31, 0xff, 0xff, // LXI SP 0x00
-                0x01, 0xde, 0xad, // LXI B 0xdead
+                0x31, 0xff, 0xff, // LXI SP u16::MAX
+                0x01, 0xad, 0xde, // LXI B 0xdead
                 0xc5, // PUSH B
                 0xd1, // POP D
             ],
         );
-        i8080.cycle(); // LXI SP 0x00
+        i8080.cycle(); // LXI SP u16::MAX
         i8080.cycle(); // LXI B 0xdead
         assert_eq!(i8080.registers.get_bc(), 0xdead, "BC is 0xdead");
         i8080.cycle(); // PUSH B
@@ -749,7 +751,7 @@ mod tests {
         assert_eq!(
             i8080.memory.read_word_big_endian(i8080.registers.sp),
             0xdead,
-            "[SP] is 0xdead"
+            "[SP] is 0xdead (big endian)"
         );
         i8080.cycle(); // POP D
         assert_eq!(i8080.registers.sp, 0xffff, "SP is initial value");

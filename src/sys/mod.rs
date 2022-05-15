@@ -16,9 +16,9 @@ use std::{
 use rustyline::error::ReadlineError;
 
 use crate::{
-    asm::{disassemble::disassemble_instruction, assemble::Assembler},
+    asm::{assemble::Assembler, disassemble::disassemble_instruction},
     cli::{AssembleArgs, RunArgs},
-    status_codes::{E_ASSEMBLER, E_IO_ERROR, E_SUCCESS},
+    ecodes::{E_ASSEMBLER, E_IO_ERROR, E_SUCCESS},
 };
 
 use self::{
@@ -105,6 +105,23 @@ macro_rules! continue_on_err {
     };
 }
 
+const PROMPT_HELP: &'static str = "\
+h | ? | help)        show this information
+q | quit | e | exit) exit the prompt
+c | cycle)           cycle the cpu
+s | sys | system)    print flags and registers
+
+i | int | interrupt) issue interrupt
+    u8: op code
+
+d | dis | disassemble) disassemble next instruction
+    u16: address [default: PC]
+
+m | mem | memory) print values in memory
+    u16: n bytes [default: 1]
+    u16: address [default: PC]\
+";
+
 fn run_interactive(i8080: &mut I8080) {
     let mut rl = rustyline::Editor::<()>::with_config(
         rustyline::Config::builder()
@@ -115,6 +132,8 @@ fn run_interactive(i8080: &mut I8080) {
     if rl.load_history("history.txt").is_err() {
         debug!("No previous command line history");
     }
+
+    let mut cycling = false;
 
     loop {
         let raw_input = match rl.readline("> ") {
@@ -136,18 +155,19 @@ fn run_interactive(i8080: &mut I8080) {
         // Input is an iterator, so the above consumes the first
         let args: Vec<&str> = input.collect();
         match cmd.as_str() {
-            "h" | "?" | "help" => prompt_help(),
+            "c" | "cycle" | "" => {}
+            _ => cycling = false,
+        }
+        match cmd.as_str() {
+            "h" | "?" | "help" => println!("{}", PROMPT_HELP),
             "c" | "cycle" => {
-                if i8080.halted {
-                    println!("CPU previously halted, breaking");
+                cycling = true;
+                if !prompt_cycle(i8080) {
                     break;
                 }
-                i8080.cycle();
-                println!("{}", i8080.current_state);
             }
-            "f" | "flags" => println!("{}", i8080.debug_flags()),
-            "r" | "registers" => println!("{}", i8080.debug_registers()),
-            "i" | "interrupt" => {
+            "s" | "sys" | "system" => println!("{}", i8080.describe_system()),
+            "i" | "int" | "interrupt" => {
                 if args.len() != 1 {
                     println!("Interrupt takes one arg");
                     continue;
@@ -161,13 +181,13 @@ fn run_interactive(i8080: &mut I8080) {
                     println!("Up to two args required: {:?}", args);
                     continue;
                 }
-                let addr = if let Some(arg) = args.get(0) {
+                let len = continue_on_err!(parse_number(args.get(0).unwrap_or(&"1")));
+                let addr = if let Some(arg) = args.get(1) {
                     continue_on_err!(parse_number(arg))
                 } else {
                     i8080.get_pc()
                 };
-                let len = continue_on_err!(parse_number(args.get(1).unwrap_or(&"1")));
-                println!("{:?}", i8080.get_memory_slice(addr, len))
+                println!("{:#04x} {:02x?}", addr, i8080.get_memory_slice(addr, len))
             }
             "d" | "dis" | "disassemble" => {
                 if args.len() > 1 {
@@ -184,9 +204,28 @@ fn run_interactive(i8080: &mut I8080) {
                 println!("{}", s);
             }
             "q" | "quit" | "e" | "exit" => break,
-            "" => continue,
+            "" => {
+                if cycling {
+                    if !prompt_cycle(i8080) {
+                        break;
+                    }
+                } else {
+                    continue;
+                }
+            }
             s => println!("Unknown command: {}", s),
         }
+    }
+}
+
+fn prompt_cycle(i8080: &mut I8080) -> bool {
+    if i8080.halted {
+        println!("CPU previously halted, breaking");
+        false
+    } else {
+        i8080.cycle();
+        println!("{}", i8080.current_state);
+        true
     }
 }
 
@@ -205,23 +244,4 @@ fn parse_number(input: &str) -> Result<u16, ParseIntError> {
         s = s[2..].to_string();
     }
     u16::from_str_radix(&s, radix)
-}
-
-fn prompt_help() {
-    println!(
-        r#"
-h | ? | help) show this information
-q | quit | e | exit) exit the prompt
-c | cycle) cycle the cpu
-f | flags) print current state of flags
-r | registers) print current state of registers
-i | interrupt) issue interrupt
-    u8: op code
-d | dis | disassemble) disassemble next instruction
-    u16: address [default: PC]
-m | mem | memory) print values in memory
-    u16: address [default: PC]
-    u16: n bytes [default: 1]
-"#
-    )
 }

@@ -66,7 +66,7 @@ pub struct AssembleArgs {
 #[clap(about = "Disassemble a file into ASM")]
 pub struct DisassembleArgs {
     #[clap(help = "Bin file to disassemble")]
-    pub infile: PathBuf,
+    pub input: PathBuf,
     #[clap(short, long, help = "Output filename")]
-    pub outfile: Option<PathBuf>,
+    pub output: Option<PathBuf>,
 }

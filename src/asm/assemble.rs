@@ -540,13 +540,13 @@ impl Assembler {
                     // Check varargs has at least one arg
                     if line.args_list.len() < 1 {
                         debug!(
-                            "@{:<03} vararg {:?} contains no args",
+                            "@{:<03} define {:?} contains no args",
                             line.line_no, line.inst,
                         );
                         return Err(ParserError::NoArgsForVariadic);
                     } else {
                         debug!(
-                            "@{:<03} vararg {:?} with args ({:?})",
+                            "@{:<03} define {:?} with args ({:?})",
                             line.line_no, line.inst, line.args_list,
                         );
                         width =
@@ -698,16 +698,16 @@ impl Assembler {
     ) -> Result<usize, ParserError> {
         match inst.as_str() {
             "DB" => {
-                if args.len() == 1 {
-                    let (bytes, flags) = parse_expression(args.get(0).unwrap(), 0, &self.labels)?;
+                let mut width = 0;
+                for arg in args {
+                    let (bytes, flags) = parse_expression(arg, 0, &self.labels)?;
                     if flags.string {
-                        return Ok(bytes.len());
+                        width += bytes.len();
                     } else {
-                        return Ok(1);
+                        width += 1;
                     }
-                } else {
-                    return Ok(args.len());
                 }
+                Ok(width)
             }
             "DW" => Ok(args.len() * 2),
             "DS" => {
@@ -737,7 +737,7 @@ impl Assembler {
                         self.erroring_line = Some(LineMeta::from_raw(line_no, line.to_string()));
                         let line_opt = tokenizer::tokenize(&line)?;
                         if let Some(mut line_meta) = line_opt {
-                            line_meta.line_no = line_no;
+                            line_meta.line_no = line_no + 1;
                             line_vec.push(line_meta);
                         }
                     }

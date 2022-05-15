@@ -12,13 +12,19 @@ pub fn disassemble_instruction(v: &[u8], from: usize) -> Result<(String, usize),
     let inst = inst.unwrap();
     let meta = I8080_OP_META[*inst as usize];
     if v.len() < meta.width() {
-        return Err(DisassembleError::NotEnoughBytes(from,meta.op, v.to_vec()));
+        return Err(DisassembleError::NotEnoughBytes(from, meta.op, v.to_vec()));
     }
     let mut op: String = meta.op.to_owned();
     if meta.argb {
-        op.push_str(&format!(", {:#04x}", v.get(1).unwrap()));
+        if meta.asm_arg_count == 2 {
+            op.push_str(",");
+        }
+        op.push_str(&format!(" {:#04x}", v.get(1).unwrap()));
     } else if meta.argw {
-        op.push_str(&format!(", {:#06x}", vec_u8_to_u16(v)));
+        if meta.asm_arg_count == 2 {
+            op.push_str(",");
+        }
+        op.push_str(&format!(" {:#06x}", vec_u8_to_u16(v)));
     }
     Ok((op, meta.width()))
 }
