@@ -16,6 +16,24 @@ cargo install --path .
 
 ## Try it Out
 
-There are some examples
+There are some examples in the `rsc` directory, so, to run a hello-world:
+
+```sh
+$ i8080 run --assemble ./rsc/asm/hello-world.asm
+hello world
+```
+
+Or, for a more interactive experience:
+
+```sh
+$ i8080 run --interactive --assemble ./rsc/asm/hello-world.asm
+>
+```
+
+Which opens a prompt.
+
+## Docs
+
+Link pending
 
 <!-- markdownlint-disable-file MD013 -->

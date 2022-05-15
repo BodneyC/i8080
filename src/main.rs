@@ -14,9 +14,16 @@
 //! $ i8080 run a.out
 //! hello world
 //! ```
-
-// TODO:
-// - Documentation, properly, README too
+//!
+//! Or we can combine the two together
+//!
+//! ```sh
+//! $ i8080 run --assemble ./rsc/asm/hello-world.asm
+//! hello world
+//! ```
+//!
+//! If assembling and running in one, register definitions are included and a `HLT` instruction is
+//! placed at the end of the program.
 
 pub mod asm;
 pub mod cli;

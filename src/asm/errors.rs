@@ -1,3 +1,5 @@
+//! Various error which may be returned by the assembler
+
 use std::{fmt, io};
 
 use crate::asm::label::Label;

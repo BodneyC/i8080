@@ -1,3 +1,5 @@
+//! Contains the assembler and disassembler
+
 pub mod assemble;
 pub mod disassemble;
 

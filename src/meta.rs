@@ -1,3 +1,12 @@
+//! Metadata for 8080 instructions
+//!
+//! For each instruction and meta-instruction I've gathered some vital data for the rest of the
+//! project, most relevantly the op-code, the arguments they receive in the ASM, and the arguments
+//! they receive in the byte code.
+//!
+//! An example of the ASM to byte-code argument count discrepency would be `MOV B, B` which takes
+//! two ASM instructions but is an argument-less op-code in the byte-code (0x40).
+
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct OpMeta {
     pub op: &'static str,

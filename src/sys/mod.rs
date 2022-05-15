@@ -1,3 +1,25 @@
+//! System and emulator
+//!
+//! I've probably mucked up in a few places but I believe this to be a fairly true-ish emulator.
+//!
+//! # Input/Output
+//!
+//! The 8080 instruction set includes two instructions, `IN` and `OUT`, for reading from an IO
+//! device to the accumulator and writing to the accumulator from an IO device.
+//!
+//! I've provided a simplistic console device which can be used to output text to make use of this
+//! `OUT` instruction.
+//!
+//! # Interrupts
+//!
+//! Interrupts may be issued as single `u8` operation codes as per the manual I found somewhere;
+//! currently this is only use in interactive mode as the `i` command performs this function.
+//!
+//! # Interactive
+//!
+//! The emulator can be ran interactively, this will drop you into a prompt where you can
+//! cycling/debug the CPU.
+
 pub mod i8080;
 
 mod device;

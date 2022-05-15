@@ -1,3 +1,31 @@
+//! 8080 disassembler
+//!
+//! This is much simpler than the assembler, it reads a stream of `u8`s from a file and interprets
+//! them as 8080 instructions.
+//!
+//! This does nothing to try to "intelligently" resolve labels, macros, strings-literals, etc. For
+//! example,
+//!
+//! ```asm
+//! DB 'hello world'
+//! ```
+//!
+//! would be disassembled as:
+//!
+//! ```asm
+//! MOV L, B
+//! MOV H, L
+//! MOV L, H
+//! MOV L, H
+//! MOV L, A
+//! ---
+//! MOV M, A
+//! MOV L, A
+//! MOV M, D
+//! MOV L, H
+//! MOV H, H
+//! ```
+
 use crate::meta::I8080_OP_META;
 use crate::util::vec_u8_to_u16;
 

@@ -1,3 +1,86 @@
+//! 8080 assembler
+//!
+//! There are some parts of this which are a little off-spec however all seem to fucntion as
+//! intended... which is nice.
+//!
+//! There's no sense of PIC here, nor is there a loader to perform similar tasks. If you wish for
+//! your code to be loaded at a particular address... you need to tell the assembler at the start.
+//!
+//! # Meta-instructions
+//!
+//! Meta-instructions supported include:
+//!
+//! - `MACRO` and `ENDM` to define macros
+//! - `IF` and `ENDIF` to define pre-compilation conditional blocks of code
+//! - `DS`, `DB`, and `DW` to define storage
+//! - `ORG` to continue assembling at a specific address (with gaps zero-filled)
+//! - `EQU` to immutably, and `SET` to mutably, set values
+//!
+//! ## Macros
+//!
+//! Macros are short pieces of code that can be called like an instruction, the compiler generates
+//! the code for the macro with each invocation.
+//!
+//! Macro-endm pairs are supported however they cannot be nested.
+//!
+//! When macros are called upon, they must have already been defined (that is, sequentially in
+//! the source file), so:
+//!
+//! ```asm
+//! _m1: MACRO
+//!      LXI B, 0x1234
+//!      ENDM
+//!      _m1
+//! ```
+//!
+//! will work, however
+//!
+//! ```asm
+//!      _m1
+//! _m1: MACRO
+//!      LXI B, 0x1234
+//!      ENDM
+//! ```
+//!
+//! will not.
+//!
+//! ## If Blocks
+//!
+//! Ifs can be used to control if blocks are included in the resulting binary; if the condition is
+//! more than zero, the block is included. For example,
+//!
+//! ```asm
+//! IF 12 XOR 12   ; Will not be included as the expression resolves to 0
+//! LXI B, 0x1234
+//! ENDIF
+//! ```
+//!
+//! ```asm
+//! IF 12 XOR 13   ; Will be included as the expression resolves to !0
+//! LXI B, 0xdead
+//! ENDIF
+//! ```
+//!
+//! If-endif pairs are supported however they cannot be nested.
+//!
+//! If the condition of the IF uses a label, that label must already be defined sequentially in the
+//! source file.
+//!
+//! ## Defines
+//!
+//! `DS` takes a single expression resolving to an 8-bit (one-byte) value
+//!
+//! `DW` is variadic and takes multiple expressions resolving to two-byte (16-bit) values - two
+//! character strings may be also used here.
+//!
+//! The DB instruction can be given in a few forms:
+//!
+//! ```asm
+//! DB 0x45           ; define 1 byte of the value 0x45
+//! DB 'some-string$' ; define 12 bytes of the ASCII values of the string
+//! DB 0x45, 0x52     ; define 2 bytes of the value 0x4552
+//! ```
+
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fs;
@@ -682,15 +765,6 @@ impl Assembler {
         fs::write(&self.args.output, &bytes)
     }
 
-    /// The DB instruction can be given in a few forms:
-    ///
-    /// DB 0x45           ; define 1 byte of the value 0x45
-    /// DB 'some-string$' ; define 12 bytes of the ASCII values of the string
-    /// DB 0x45, 0x52     ; define 2 bytes of the value 0x4552
-    ///
-    /// DW's width should be the number of args by two
-    ///
-    /// DS's width should be the value of the parsed expression
     fn width_of_data_storage(
         &self,
         inst: String,

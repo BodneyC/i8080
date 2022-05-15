@@ -1,3 +1,10 @@
+//! Simplistic IO device
+//!
+//! The emulator can use IO devices with its `IN` and `OUT` instructions, so the `IN` will be used
+//! to receive data (`rx`) and `OUT` will be used to transmit (`tx`) data.
+//!
+//! The devices here take to relevant opposites to the above.
+
 pub mod console_device;
 
 use std::sync::mpsc::{Receiver, Sender};

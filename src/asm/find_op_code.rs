@@ -1,3 +1,17 @@
+//! Find the operation code for a given string
+//!
+//! Depending on what part of the assembly process we're in we may not be able to resolve the true
+//! operation code.
+//!
+//! Say we have `MOV A, _label`, without knowing what that `_label`'s value is, we cannot know the
+//! true op-code.
+//!
+//! We can get some information, all `MOV X, Y` instructions have the same metadata, so depending
+//! on the arguments provided to these methods, you will either get an op-code estimation or the
+//! real thing.
+//!
+//! Then, when labels have been resolved, we can use the same method to find the real code.
+
 use crate::meta::I8080_OP_META;
 
 use super::errors::OpParseError;

@@ -1,3 +1,5 @@
+//! Label container specifying the type of value/instruction the label relates to
+
 #[derive(Debug, Clone, Copy)]
 pub struct Label {
     pub value: Option<u16>,

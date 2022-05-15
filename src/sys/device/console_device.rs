@@ -1,10 +1,15 @@
-use std::sync::mpsc::Receiver;
+//! Console printing device for the emulator
+//!
+//! The console device takes a receiver and ideally the emulator receives the counterpart
+//! transmitter.
+//!
+//! Operation of the device is done through special characters. For example, the text passed to 
+//! it is buffered, the null or ETB characters are used to "flush" the buffer and print the
+//! contents to the screen.
+//!
+//! Similarly end-of-tranmission (EOT) is used to close operation of the device
 
-/// I8080 to take an rx of one channel and a tx of another DeviceController to take the
-/// corresponding channel halves
-///
-/// out => tx.write(self.registers.a)
-/// in => self.registers.a = rx.read()
+use std::sync::mpsc::Receiver;
 
 // I don't know another way to namespace some consts... maybe bad practice but who can really tell
 // these days

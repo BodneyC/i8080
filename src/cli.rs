@@ -1,3 +1,13 @@
+//! Cli argument structures
+//!
+//! This cli is based on subcommands, each with its own sub-options
+//!
+//! - `run` to access the emulator
+//! - `assemble` to access the assembler
+//! - `disassemble` to access the disassembler
+//!
+//! Use the `--help` option for each subcommand to find out more...
+
 use std::path::PathBuf;
 
 use clap::{self, Args, Parser, Subcommand};
