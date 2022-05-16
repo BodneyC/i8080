@@ -771,6 +771,8 @@ impl Assembler {
             }
         }
 
+        self.erroring_line = None;
+
         if inside_if {
             debug!("@EOF IFs without ENDIF");
             Err(ParserError::NoEndIf)
