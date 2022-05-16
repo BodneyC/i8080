@@ -1538,6 +1538,8 @@
 <span id="1533">1533</span>
 <span id="1534">1534</span>
 <span id="1535">1535</span>
+<span id="1536">1536</span>
+<span id="1537">1537</span>
 </pre><pre class="rust"><code><span class="doccomment">//! 8080 assembler</span>
 <span class="doccomment">//!</span>
 <span class="doccomment">//! There are some parts of this which are a little off-spec however all seem to fucntion as</span>
@@ -2310,6 +2312,8 @@
                 }
             }
         }
+
+        <span class="self">self</span>.<span class="ident">erroring_line</span> <span class="op">=</span> <span class="prelude-val">None</span>;
 
         <span class="kw">if</span> <span class="ident">inside_if</span> {
             <span class="macro">debug!</span>(<span class="string">&quot;@EOF IFs without ENDIF&quot;</span>);
