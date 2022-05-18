@@ -81,9 +81,9 @@ impl<'a> Lexer<'a> {
                 let ident = self.consume_identifier();
                 if let Some(operator) = functions(ident.to_string()) {
                     tokens.push(operator);
-                } else
+                }
                 // These should come before the label check as someone might use an SP label
-                if ident == "PSW" {
+                else if ident == "PSW" {
                     flags.psw = true;
                     tokens.push(Token::MetaIdentifier(ident));
                 } else if ident == "SP" {
@@ -100,7 +100,7 @@ impl<'a> Lexer<'a> {
                     '\'' => {
                         let s = self.consume_string()?;
                         if s.len() == 1 {
-                            tokens.push(Token::Number(s.chars().nth(0).unwrap() as u16))
+                            tokens.push(Token::Number(s.chars().next().unwrap() as u16))
                         } else {
                             flags.string = true;
                             tokens.push(Token::String(s));
@@ -139,7 +139,8 @@ impl<'a> Lexer<'a> {
 
         let mut s = String::new();
 
-        while let Some(c) = self.iter.next() {
+        for c in self.iter.by_ref() {
+            // while let Some(c) = self.iter.next() {
             if escaped {
                 escaped = false;
                 let escaped_char: char = match c {
@@ -175,13 +176,9 @@ impl<'a> Lexer<'a> {
         let mut s = String::new();
         let mut radix: u32 = 10;
         while let Some(&c) = self.iter.peek() {
-            if c.is_numeric() {
+            if c.is_numeric() || (radix == 16 && c >= 'A' && c <= 'F') {
                 s.push(c);
-            } else
-            // Handle [A-F] for hexadecimals
-            if radix == 16 && c >= 'A' && c <= 'F' {
-                s.push(c);
-            } else if s.len() == 1 && s.chars().nth(0).unwrap() == '0' {
+            } else if s.len() == 1 && s.starts_with('0') {
                 if c == 'X' {
                     radix = 16;
                 } else if c == 'B' {

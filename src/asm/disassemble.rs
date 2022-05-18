@@ -57,23 +57,23 @@ pub fn disassemble_instruction(v: &[u8], from: usize) -> Result<(String, usize),
     let mut op: String = meta.op.to_owned();
     if meta.argb {
         if meta.asm_arg_count == 2 {
-            op.push_str(",");
+            op.push(',');
         }
         op.push_str(&format!(" {:#04x}", v.get(1).unwrap()));
     } else if meta.argw {
         if meta.asm_arg_count == 2 {
-            op.push_str(",");
+            op.push(',');
         }
         op.push_str(&format!(" {:#06x}", vec_u8_to_u16(v)));
     }
     Ok((op, meta.width()))
 }
 
-pub fn disassemble_vec(v: &Vec<u8>) -> Result<Vec<String>, DisassembleError> {
+pub fn disassemble_vec(v: &[u8]) -> Result<Vec<String>, DisassembleError> {
     let mut strings = Vec::new();
     let mut from = 0;
     while from < v.len() {
-        let (s, width) = disassemble_instruction(&v, from)?;
+        let (s, width) = disassemble_instruction(v, from)?;
         strings.push(s);
         // Shouldn't happen but peace of mind is nice
         if width == 0 {

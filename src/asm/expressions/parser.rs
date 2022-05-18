@@ -17,7 +17,7 @@ pub fn parse_expression_u16<S: Into<String>>(
     addr: u16,
     labels: &HashMap<String, Label>,
 ) -> Result<(u16, ExprFlags), ExpressionError> {
-    parse_expression(exp, addr, labels).and_then(|(v, flags)| Ok((util::vec_u8_to_u16(&v), flags)))
+    parse_expression(exp, addr, labels).map(|(v, flags)| (util::vec_u8_to_u16(&v), flags))
 }
 
 pub fn parse_expression<S: Into<String>>(

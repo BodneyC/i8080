@@ -64,7 +64,7 @@ impl I8080 {
             let d = time::SystemTime::now()
                 .duration_since(self.from_time)
                 .unwrap();
-            let s = u64::from(STEP_MS.saturating_sub(d.as_millis() as u64));
+            let s = STEP_MS.saturating_sub(d.as_millis() as u64);
             debug!("CPU: sleep {} millis", s);
             thread::sleep(time::Duration::from_millis(s));
             self.from_time = time::SystemTime::now();
@@ -154,14 +154,14 @@ impl I8080 {
             let argb = self.memory.read_byte(pc + 1);
             inst_hex.push_str(&format!(" {:02x}", argb));
             if meta.asm_arg_count == 2 {
-                op.push_str(",");
+                op.push(',');
             }
             op.push_str(&format!(" {:#04x}", argb));
         } else if meta.argw {
             let argw = self.memory.read_word_little_endian(self.registers.pc + 1);
             inst_hex.push_str(&format!(" {:04x}", argw));
             if meta.asm_arg_count == 2 {
-                op.push_str(",");
+                op.push(',');
             }
             op.push_str(&format!(" {:#06x}", argw));
         }

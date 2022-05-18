@@ -123,7 +123,7 @@ use super::{
     tokenizer::{self, LineMeta},
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Macro {
     lines: Vec<LineMeta>,
     bytes: Vec<u8>,
@@ -133,12 +133,7 @@ pub struct Macro {
 
 impl Macro {
     pub fn new() -> Self {
-        Self {
-            lines: Vec::new(),
-            bytes: Vec::new(),
-            width: 0,
-            uses_pc: false,
-        }
+        Default::default()
     }
 }
 
@@ -229,7 +224,7 @@ impl Assembler {
         inside_macro: bool,
     ) -> Result<(Vec<u8>, bool), CodeGenError> {
         trace!("generating code for line {}", line.line_no);
-        if let Some(_) = line.op_code {
+        if line.op_code.is_some() {
             self.gen_for_instruction(line, address)
         } else {
             self.gen_for_macro_call(line, address, inside_macro)
@@ -293,7 +288,7 @@ impl Assembler {
                 // We know the number of args is correct so we don't care "which" it is
                 let sp = parsed_exprs.iter().any(|e| e.1.sp);
                 let psw = parsed_exprs.iter().any(|e| e.1.psw);
-                let arg0 = if parsed_exprs.len() > 0 {
+                let arg0 = if !parsed_exprs.is_empty() {
                     util::vec_u8_to_u16(&parsed_exprs[0].0)
                 } else {
                     0
@@ -340,13 +335,13 @@ impl Assembler {
                         }
 
                         trace!("@{:<03} {:?}", line.line_no, inst_bytes);
-                        return Ok((inst_bytes, uses_pc));
+                        Ok((inst_bytes, uses_pc))
                     }
                     Err(e) => {
                         debug!("@{:<03} {} unable to find op", line.line_no, name);
-                        return Err(CodeGenError::ParserError(ParserError::NoInstructionFound(
+                        Err(CodeGenError::ParserError(ParserError::NoInstructionFound(
                             e,
-                        )));
+                        )))
                     }
                 }
             }
@@ -401,7 +396,7 @@ impl Assembler {
         self.erroring_line = None;
         let mut bytes = vec![0; self.prog_width as usize];
         for line in self.lines.borrow().iter() {
-            self.erroring_line = Some(LineMeta::erroring(&line));
+            self.erroring_line = Some(LineMeta::erroring(line));
             let (line_bytes, _) = self.gen_for_line(line, line.address, false)?;
             if line_bytes.len() != line.width {
                 return Err(CodeGenError::UnexpectedLength(line.width, bytes.len()));
@@ -514,7 +509,7 @@ impl Assembler {
                     if line.inst.as_ref().unwrap().as_str() != "SET" {
                         return Err(ParserError::LabelAlreadyDefined(
                             label.to_string(),
-                            self.labels.get(label).unwrap().clone(),
+                            *self.labels.get(label).unwrap(),
                         ));
                     }
                 }
@@ -646,7 +641,7 @@ impl Assembler {
                 // Check we have the correct number of arguments
                 if inst_meta.define {
                     // Check varargs has at least one arg
-                    if line.args_list.len() < 1 {
+                    if line.args_list.is_empty() {
                         debug!(
                             "@{:<03} define {:?} contains no args",
                             line.line_no, line.inst,
@@ -682,12 +677,12 @@ impl Assembler {
                         width = inst_meta.width();
                     }
                 }
-            } else
+            }
             // The only other thing it could be is a macro which should take no arguments
-            {
+            else {
                 debug!("@{:<03} {:?} should be a macro", line.line_no, line.inst);
 
-                if line.args_list.len() != 0 {
+                if !line.args_list.is_empty() {
                     debug!("@{:<03} {:?} macro has arguments", line.line_no, line.inst);
                     return Err(ParserError::WrongNumberOfArgs(0, line.args_list.len()));
                 }
@@ -792,11 +787,7 @@ impl Assembler {
         fs::write(&self.args.output, &bytes)
     }
 
-    fn width_of_data_storage(
-        &self,
-        inst: String,
-        args: &Vec<String>,
-    ) -> Result<usize, ParserError> {
+    fn width_of_data_storage(&self, inst: String, args: &[String]) -> Result<usize, ParserError> {
         match inst.as_str() {
             "DB" => {
                 let mut width = 0;
@@ -845,7 +836,7 @@ impl Assembler {
                 }
                 Ok(line_vec)
             }
-            Err(e) => Err(AssemblerError::FileReadError(e)),
+            Err(e) => Err(AssemblerError::FileRead(e)),
         }
     }
 
@@ -1282,7 +1273,7 @@ mod tests {
 
         let label = labels.get("label").unwrap();
 
-        assert_eq!(label.is_set, true, "label is from SET");
+        assert!(label.is_set, "label is from SET");
         assert_eq!(label.value, Some(201), "label is updated value");
     }
 
@@ -1305,12 +1296,12 @@ mod tests {
 
         assert!(labels.get("EQ200").is_some(), "'EQ200' should exist");
         let eq200 = labels.get("EQ200").unwrap();
-        assert_eq!(eq200.is_eq, true, "EQ200 is from EQU");
+        assert!(eq200.is_eq, "EQ200 is from EQU");
         assert_eq!(eq200.value, Some(200), "EQ200 is updated value");
 
         assert!(labels.get("SET20X").is_some(), "'SET20X' should exist");
         let set20x = labels.get("SET20X").unwrap();
-        assert_eq!(set20x.is_set, true, "SET20X is from SET");
+        assert!(set20x.is_set, "SET20X is from SET");
         assert_eq!(set20x.value, Some(200), "SET20X is updated value");
     }
 
@@ -1381,7 +1372,7 @@ mod tests {
         assert!(pc, "pc ($) not used");
         assert_eq!(
             bytes,
-            vec![0x10, 'A' as u8, 'B' as u8, 'A' as u8, 'B' as u8, 0x00]
+            vec![0x10, b'A', b'B', b'A', b'B', 0x00]
         );
     }
 
@@ -1391,7 +1382,7 @@ mod tests {
         let ass = Assembler::new(AssembleArgs::new());
         let (bytes, pc) = ass.gen_for_instruction(&line, 0).expect("should generate");
         assert!(!pc, "pc ($) was not used");
-        assert_eq!(bytes, vec![0x34, 0x12, 0x10, 0x00, 'A' as u8, 'B' as u8]);
+        assert_eq!(bytes, vec![0x34, 0x12, 0x10, 0x00, b'A', b'B']);
     }
 
     #[test]

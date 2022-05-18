@@ -94,11 +94,7 @@ pub fn run_system(args: RunArgs) -> i32 {
 
     i8080.load(load_address, program);
 
-    let th_cons = if let Some(cons) = console {
-        Some(thread::spawn(move || cons.run()))
-    } else {
-        None
-    };
+    let th_cons = console.map(|cons| thread::spawn(move || cons.run()));
 
     if args.interactive {
         i8080.interactive = true;
@@ -127,7 +123,7 @@ macro_rules! continue_on_err {
     };
 }
 
-const PROMPT_HELP: &'static str = "\
+const PROMPT_HELP: &str = "\
 h | ? | help)        show this information
 q | quit | e | exit) exit the prompt
 c | cycle)           cycle the cpu
@@ -173,7 +169,7 @@ fn run_interactive(i8080: &mut I8080) {
             }
         };
         let mut input = raw_input.split_whitespace();
-        let cmd = input.nth(0).unwrap_or("").to_lowercase();
+        let cmd = input.next().unwrap_or("").to_lowercase();
         // Input is an iterator, so the above consumes the first
         let args: Vec<&str> = input.collect();
         match cmd.as_str() {

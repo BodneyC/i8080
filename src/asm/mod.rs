@@ -76,7 +76,7 @@ mod tests {
         let mut f = File::open(&filename)?;
         let metadata = fs::metadata(&filename)?;
         let mut buffer = vec![0; metadata.len() as usize];
-        f.read(&mut buffer)?;
+        f.read_exact(&mut buffer)?;
         Ok(buffer)
     }
 

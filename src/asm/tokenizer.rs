@@ -3,7 +3,7 @@ use super::{
     find_op_code,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct LineMeta {
     pub raw_line: String,
     pub line_no: usize,
@@ -16,24 +16,6 @@ pub struct LineMeta {
     pub address: u16,
     pub width: usize,
     pub uses_pc: bool,
-}
-
-impl Default for LineMeta {
-    fn default() -> Self {
-        Self {
-            raw_line: String::new(),
-            line_no: 0,
-            comment: None,
-            inst: None,
-            args_list: vec![],
-            label: None,
-            op_code: None,
-            label_only: false,
-            address: 0,
-            width: 0,
-            uses_pc: false,
-        }
-    }
 }
 
 impl LineMeta {
@@ -68,11 +50,11 @@ impl LineMeta {
 
 // A more robust system wouldn't be a bad idea, but as the syntax is fairly simple might as
 // well do it fairly simply
-pub fn tokenize(raw_line: &String) -> Result<Option<LineMeta>, ParserError> {
+pub fn tokenize(raw_line: &str) -> Result<Option<LineMeta>, ParserError> {
     let mut line = raw_line.trim();
     let mut comment: Option<String> = None;
     // Check for a comment in the line
-    if let Some(comment_idx) = line.find(";") {
+    if let Some(comment_idx) = line.find(';') {
         if line.len() > comment_idx {
             comment = Some(line[comment_idx + 1..].trim().to_string());
         }
@@ -80,15 +62,15 @@ pub fn tokenize(raw_line: &String) -> Result<Option<LineMeta>, ParserError> {
     }
 
     // If no line remains, tokenize is still successful, but no LineMeta is returned
-    if line.len() == 0 {
+    if line.is_empty() {
         return Ok(None);
     }
 
     let mut label: Option<String> = None;
     // Check if some label precedes the instruction
-    if let Some(label_idx) = line.find(":") {
+    if let Some(label_idx) = line.find(':') {
         let label_str = line[..label_idx].trim().to_uppercase();
-        if label_str.len() == 0 {
+        if label_str.is_empty() {
             return Err(ParserError::InvalidLabel(label_str));
         }
         for (idx, c) in label_str.chars().enumerate() {
@@ -108,7 +90,7 @@ pub fn tokenize(raw_line: &String) -> Result<Option<LineMeta>, ParserError> {
     }
 
     // If no line remains, line is just a marker for a label
-    if line.len() == 0 {
+    if line.is_empty() {
         return Ok(Some(LineMeta::label_only(
             label,
             comment,
@@ -117,7 +99,7 @@ pub fn tokenize(raw_line: &String) -> Result<Option<LineMeta>, ParserError> {
     }
     let mut raw_args: Option<String> = None;
     // Look for the space between instruction and args
-    if let Some(args_idx) = line.find(" ") {
+    if let Some(args_idx) = line.find(' ') {
         // No bounds check here as we trim before
         raw_args = Some(line[args_idx + 1..].trim().to_string());
         line = line[..args_idx].trim();
@@ -151,7 +133,7 @@ pub fn tokenize(raw_line: &String) -> Result<Option<LineMeta>, ParserError> {
                 if in_quotes {
                     this_arg.push(c);
                 } else {
-                    this_arg.push(c.to_uppercase().nth(0).unwrap_or(c));
+                    this_arg.push(c.to_uppercase().next().unwrap_or(c));
                 }
             }
             if idx == args.len() - 1 {
@@ -272,7 +254,7 @@ mod tests {
 
     #[test]
     fn string_arg() {
-        let line = format!("MOV 'fish', B");
+        let line = "MOV 'fish', B".to_string();
         let meta = tokenize(&line).expect("tokenizer failed");
         assert!(meta.is_some(), "should be a valid line");
         let meta = meta.unwrap();
@@ -281,7 +263,7 @@ mod tests {
 
     #[test]
     fn string_arg_with_comma() {
-        let line = format!("MOV 'fish, other fish', B");
+        let line = "MOV 'fish, other fish', B".to_string();
         let meta = tokenize(&line).expect("tokenizer failed");
         assert!(meta.is_some(), "should be a valid line");
         let meta = meta.unwrap();
@@ -290,7 +272,7 @@ mod tests {
 
     #[test]
     fn string_arg_with_other_phrases() {
-        let line = format!("MOV XOR 'fish' + 1, B");
+        let line = "MOV XOR 'fish' + 1, B".to_string();
         let meta = tokenize(&line).expect("tokenizer failed");
         assert!(meta.is_some(), "should be a valid line");
         let meta = meta.unwrap();
@@ -299,7 +281,7 @@ mod tests {
 
     #[test]
     fn labels_insts_and_args_are_made_uppercase() {
-        let line = format!("some_label: mov xor 'fish', b ; lowercase");
+        let line = "some_label: mov xor 'fish', b ; lowercase".to_string();
         let meta = tokenize(&line).expect("tokenizer failed");
         assert!(meta.is_some(), "should be a valid line");
         let meta = meta.unwrap();

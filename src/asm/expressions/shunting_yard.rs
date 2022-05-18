@@ -11,7 +11,7 @@ pub fn transform(input_queue: Vec<Token>) -> Result<Vec<Token>, ExpressionError>
             Token::Number(_) => output_queue.push(tok.to_owned()),
             Token::Unary(_) => stack.push(tok.to_owned()),
             Token::Operator(o1, o1_associativity, o1_precedence) => {
-                while stack.len() > 0 {
+                while !stack.is_empty() {
                     match stack.last() {
                         Some(&Token::Operator(_, _, o2_precedence)) => {
                             if (o1_associativity == token::LEFT_ASSOC
@@ -50,7 +50,7 @@ pub fn transform(input_queue: Vec<Token>) -> Result<Vec<Token>, ExpressionError>
     }
 
     // Are there any operators left on the stack?
-    while stack.len() > 0 {
+    while !stack.is_empty() {
         // Pop them off and push them to the output_queue
         let op = stack.pop();
         match op {

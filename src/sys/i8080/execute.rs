@@ -130,7 +130,7 @@ impl I8080 {
             0x3e => self.registers.a = self.pc_argb(),
 
             // MOV B, x
-            0x40 => self.registers.b = self.registers.b,
+            0x40 => {},
             0x41 => self.registers.b = self.registers.c,
             0x42 => self.registers.b = self.registers.d,
             0x43 => self.registers.b = self.registers.e,
@@ -141,7 +141,7 @@ impl I8080 {
 
             // MOV C, x
             0x48 => self.registers.c = self.registers.b,
-            0x49 => self.registers.c = self.registers.c,
+            0x49 => {},
             0x4a => self.registers.c = self.registers.d,
             0x4b => self.registers.c = self.registers.e,
             0x4c => self.registers.c = self.registers.h,
@@ -152,7 +152,7 @@ impl I8080 {
             // MOV D, x
             0x50 => self.registers.d = self.registers.b,
             0x51 => self.registers.d = self.registers.c,
-            0x52 => self.registers.d = self.registers.d,
+            0x52 => {},
             0x53 => self.registers.d = self.registers.e,
             0x54 => self.registers.d = self.registers.h,
             0x55 => self.registers.d = self.registers.l,
@@ -163,7 +163,7 @@ impl I8080 {
             0x58 => self.registers.e = self.registers.b,
             0x59 => self.registers.e = self.registers.c,
             0x5a => self.registers.e = self.registers.d,
-            0x5b => self.registers.e = self.registers.e,
+            0x5b => {},
             0x5c => self.registers.e = self.registers.h,
             0x5d => self.registers.e = self.registers.l,
             0x5e => self.registers.e = self.memory.read_byte(self.registers.get_hl()),
@@ -174,7 +174,7 @@ impl I8080 {
             0x61 => self.registers.h = self.registers.c,
             0x62 => self.registers.h = self.registers.d,
             0x63 => self.registers.h = self.registers.e,
-            0x64 => self.registers.h = self.registers.h,
+            0x64 => {},
             0x65 => self.registers.h = self.registers.l,
             0x66 => self.registers.h = self.memory.read_byte(self.registers.get_hl()),
             0x67 => self.registers.h = self.registers.a,
@@ -185,7 +185,7 @@ impl I8080 {
             0x6a => self.registers.l = self.registers.d,
             0x6b => self.registers.l = self.registers.e,
             0x6c => self.registers.l = self.registers.h,
-            0x6d => self.registers.l = self.registers.l,
+            0x6d => {},
             0x6e => self.registers.l = self.memory.read_byte(self.registers.get_hl()),
             0x6f => self.registers.l = self.registers.a,
 
@@ -221,7 +221,7 @@ impl I8080 {
             0x7c => self.registers.a = self.registers.h,
             0x7d => self.registers.a = self.registers.l,
             0x7e => self.registers.a = self.memory.read_byte(self.registers.get_hl()),
-            0x7f => self.registers.a = self.registers.a,
+            0x7f => {},
 
             // Jxx
             0xc3 => self.jmp(self.pc_argw(), true), // JMP

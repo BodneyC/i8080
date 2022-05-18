@@ -7,7 +7,7 @@
 //! An example of the ASM to byte-code argument count discrepency would be `MOV B, B` which takes
 //! two ASM instructions but is an argument-less op-code in the byte-code (0x40).
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
 pub struct OpMeta {
     pub op: &'static str,
     pub asm_arg_count: usize,
@@ -17,20 +17,6 @@ pub struct OpMeta {
     pub labelled: bool,
     // The cycle counts used are from https://github.com/superzazu/8080/blob/master/i8080.c#L7
     pub cycles: u8,
-}
-
-impl Default for OpMeta {
-    fn default() -> Self {
-        Self {
-            op: "",
-            asm_arg_count: 0,
-            argb: false,
-            argw: false,
-            define: false,
-            labelled: false,
-            cycles: 0,
-        }
-    }
 }
 
 impl OpMeta {
@@ -471,7 +457,7 @@ mod tests {
         for i in 0x00..=0xff {
             let inst_desc = format!("{:#04x} ({:#03}): {}", i, i, I8080_OP_META[i as usize].op);
             assert!(
-                I8080_OP_META[i as usize].op.len() > 0,
+                !I8080_OP_META[i as usize].op.is_empty(),
                 "Name not set: {}",
                 inst_desc
             );

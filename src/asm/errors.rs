@@ -8,9 +8,9 @@ use super::expressions::errors::ExpressionError;
 
 #[derive(Debug)]
 pub enum AssemblerError {
-    FileReadError(io::Error),
-    ParserError(ParserError),
-    CodeGenError(CodeGenError),
+    FileRead(io::Error),
+    Parser(ParserError),
+    CodeGen(CodeGenError),
 }
 
 impl std::error::Error for AssemblerError {}
@@ -18,22 +18,22 @@ impl std::error::Error for AssemblerError {}
 impl fmt::Display for AssemblerError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Self::FileReadError(e) => write!(f, "{}", e),
-            Self::ParserError(e) => write!(f, "{}", e),
-            Self::CodeGenError(e) => write!(f, "{}", e),
+            Self::FileRead(e) => write!(f, "{}", e),
+            Self::Parser(e) => write!(f, "{}", e),
+            Self::CodeGen(e) => write!(f, "{}", e),
         }
     }
 }
 
 impl From<ParserError> for AssemblerError {
     fn from(e: ParserError) -> Self {
-        AssemblerError::ParserError(e)
+        AssemblerError::Parser(e)
     }
 }
 
 impl From<CodeGenError> for AssemblerError {
     fn from(e: CodeGenError) -> Self {
-        AssemblerError::CodeGenError(e)
+        AssemblerError::CodeGen(e)
     }
 }
 

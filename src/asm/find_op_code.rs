@@ -67,14 +67,12 @@ pub fn from_args_and_sp_psw(
         _ => I8080_OP_META
             .into_iter()
             .position(|meta| inst == meta.op)
-            .ok_or(OpParseError::NoSuchInstruction(inst.to_string())),
+            .ok_or_else(|| OpParseError::NoSuchInstruction(inst.to_string())),
     }
 }
 
 fn with_all_regs(start: u16, arg0: u16, arg1: u16, extra: bool) -> Result<usize, OpParseError> {
-    if extra {
-        Err(OpParseError::UnknownRegister)
-    } else if arg0 > 7 || arg1 > 7 {
+    if extra || arg0 > 7 || arg1 > 7 {
         Err(OpParseError::UnknownRegister)
     } else {
         let idx = start + (arg0 * 8) + arg1;

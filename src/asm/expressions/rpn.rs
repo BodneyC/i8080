@@ -1,6 +1,6 @@
 use super::{errors::ExpressionError, token::Token};
 
-pub fn calculate(input_queue: &Vec<Token>) -> Result<u16, ExpressionError> {
+pub fn calculate(input_queue: &[Token]) -> Result<u16, ExpressionError> {
     trace!("rpn input queue: {:?}", input_queue);
 
     let mut stack = Vec::new();
@@ -30,7 +30,7 @@ pub fn calculate(input_queue: &Vec<Token>) -> Result<u16, ExpressionError> {
                     let arg = stack.pop();
 
                     if let Some(Token::Number(n)) = arg {
-                        stack.push(Token::Number((0 as u16).wrapping_sub(n)));
+                        stack.push(Token::Number(0_u16.wrapping_sub(n)));
                     }
                 }
                 _ => return Err(ExpressionError::UnknownUnary(unary.to_string())),

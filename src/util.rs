@@ -13,7 +13,7 @@ pub fn u16_to_vec_u8(v: u16) -> Vec<u8> {
 }
 
 pub fn char_width_one(val: u8) -> char {
-    if val >= 0x20 && val < 0x7f {
+    if (0x20..0x7f).contains(&val) {
         val as char
     } else {
         ' '
@@ -39,7 +39,7 @@ pub fn read_file_to_vec_u8<P: AsRef<Path>>(filename: P) -> Result<Vec<u8>, io::E
     let mut f = File::open(&filename)?;
     let metadata = fs::metadata(&filename)?;
     let mut buffer = vec![0; metadata.len() as usize];
-    f.read(&mut buffer)?;
+    f.read_exact(&mut buffer)?;
     Ok(buffer)
 }
 
