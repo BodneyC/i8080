@@ -318,7 +318,7 @@
             <span class="kw">let</span> <span class="ident">d</span> <span class="op">=</span> <span class="ident">time::SystemTime::now</span>()
                 .<span class="ident">duration_since</span>(<span class="self">self</span>.<span class="ident">from_time</span>)
                 .<span class="ident">unwrap</span>();
-            <span class="kw">let</span> <span class="ident">s</span> <span class="op">=</span> <span class="ident">u64::from</span>(<span class="ident">STEP_MS</span>.<span class="ident">saturating_sub</span>(<span class="ident">d</span>.<span class="ident">as_millis</span>() <span class="kw">as</span> <span class="ident">u64</span>));
+            <span class="kw">let</span> <span class="ident">s</span> <span class="op">=</span> <span class="ident">STEP_MS</span>.<span class="ident">saturating_sub</span>(<span class="ident">d</span>.<span class="ident">as_millis</span>() <span class="kw">as</span> <span class="ident">u64</span>);
             <span class="macro">debug!</span>(<span class="string">&quot;CPU: sleep {} millis&quot;</span>, <span class="ident">s</span>);
             <span class="ident">thread::sleep</span>(<span class="ident">time::Duration::from_millis</span>(<span class="ident">s</span>));
             <span class="self">self</span>.<span class="ident">from_time</span> <span class="op">=</span> <span class="ident">time::SystemTime::now</span>();
@@ -408,14 +408,14 @@
             <span class="kw">let</span> <span class="ident">argb</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">memory</span>.<span class="ident">read_byte</span>(<span class="ident">pc</span> <span class="op">+</span> <span class="number">1</span>);
             <span class="ident">inst_hex</span>.<span class="ident">push_str</span>(<span class="kw-2">&amp;</span><span class="macro">format!</span>(<span class="string">&quot; {:02x}&quot;</span>, <span class="ident">argb</span>));
             <span class="kw">if</span> <span class="ident">meta</span>.<span class="ident">asm_arg_count</span> <span class="op">==</span> <span class="number">2</span> {
-                <span class="ident">op</span>.<span class="ident">push_str</span>(<span class="string">&quot;,&quot;</span>);
+                <span class="ident">op</span>.<span class="ident">push</span>(<span class="string">&#39;,&#39;</span>);
             }
             <span class="ident">op</span>.<span class="ident">push_str</span>(<span class="kw-2">&amp;</span><span class="macro">format!</span>(<span class="string">&quot; {:#04x}&quot;</span>, <span class="ident">argb</span>));
         } <span class="kw">else</span> <span class="kw">if</span> <span class="ident">meta</span>.<span class="ident">argw</span> {
             <span class="kw">let</span> <span class="ident">argw</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">memory</span>.<span class="ident">read_word_little_endian</span>(<span class="self">self</span>.<span class="ident">registers</span>.<span class="ident">pc</span> <span class="op">+</span> <span class="number">1</span>);
             <span class="ident">inst_hex</span>.<span class="ident">push_str</span>(<span class="kw-2">&amp;</span><span class="macro">format!</span>(<span class="string">&quot; {:04x}&quot;</span>, <span class="ident">argw</span>));
             <span class="kw">if</span> <span class="ident">meta</span>.<span class="ident">asm_arg_count</span> <span class="op">==</span> <span class="number">2</span> {
-                <span class="ident">op</span>.<span class="ident">push_str</span>(<span class="string">&quot;,&quot;</span>);
+                <span class="ident">op</span>.<span class="ident">push</span>(<span class="string">&#39;,&#39;</span>);
             }
             <span class="ident">op</span>.<span class="ident">push_str</span>(<span class="kw-2">&amp;</span><span class="macro">format!</span>(<span class="string">&quot; {:#06x}&quot;</span>, <span class="ident">argw</span>));
         }

@@ -68,7 +68,7 @@
 <span id="63">63</span>
 </pre><pre class="rust"><code><span class="kw">use</span> <span class="kw">super</span>::{<span class="ident">errors::ExpressionError</span>, <span class="ident">token::Token</span>};
 
-<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">calculate</span>(<span class="ident">input_queue</span>: <span class="kw-2">&amp;</span><span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">Token</span><span class="op">&gt;</span>) -&gt; <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">u16</span>, <span class="ident">ExpressionError</span><span class="op">&gt;</span> {
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">calculate</span>(<span class="ident">input_queue</span>: <span class="kw-2">&amp;</span>[<span class="ident">Token</span>]) -&gt; <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">u16</span>, <span class="ident">ExpressionError</span><span class="op">&gt;</span> {
     <span class="macro">trace!</span>(<span class="string">&quot;rpn input queue: {:?}&quot;</span>, <span class="ident">input_queue</span>);
 
     <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">stack</span> <span class="op">=</span> <span class="ident">Vec::new</span>();
@@ -98,7 +98,7 @@
                     <span class="kw">let</span> <span class="ident">arg</span> <span class="op">=</span> <span class="ident">stack</span>.<span class="ident">pop</span>();
 
                     <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">Token::Number</span>(<span class="ident">n</span>)) <span class="op">=</span> <span class="ident">arg</span> {
-                        <span class="ident">stack</span>.<span class="ident">push</span>(<span class="ident">Token::Number</span>((<span class="number">0</span> <span class="kw">as</span> <span class="ident">u16</span>).<span class="ident">wrapping_sub</span>(<span class="ident">n</span>)));
+                        <span class="ident">stack</span>.<span class="ident">push</span>(<span class="ident">Token::Number</span>(<span class="number">0_u16</span>.<span class="ident">wrapping_sub</span>(<span class="ident">n</span>)));
                     }
                 }
                 <span class="kw">_</span> =&gt; <span class="kw">return</span> <span class="prelude-val">Err</span>(<span class="ident">ExpressionError::UnknownUnary</span>(<span class="ident">unary</span>.<span class="ident">to_string</span>())),

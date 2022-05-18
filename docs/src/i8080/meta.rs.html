@@ -474,20 +474,6 @@
 <span id="469">469</span>
 <span id="470">470</span>
 <span id="471">471</span>
-<span id="472">472</span>
-<span id="473">473</span>
-<span id="474">474</span>
-<span id="475">475</span>
-<span id="476">476</span>
-<span id="477">477</span>
-<span id="478">478</span>
-<span id="479">479</span>
-<span id="480">480</span>
-<span id="481">481</span>
-<span id="482">482</span>
-<span id="483">483</span>
-<span id="484">484</span>
-<span id="485">485</span>
 </pre><pre class="rust"><code><span class="doccomment">//! Metadata for 8080 instructions</span>
 <span class="doccomment">//!</span>
 <span class="doccomment">//! For each instruction and meta-instruction I&#39;ve gathered some vital data for the rest of the</span>
@@ -497,7 +483,7 @@
 <span class="doccomment">//! An example of the ASM to byte-code argument count discrepency would be `MOV B, B` which takes</span>
 <span class="doccomment">//! two ASM instructions but is an argument-less op-code in the byte-code (0x40).</span>
 
-<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Copy</span>, <span class="ident">Clone</span>, <span class="ident">Debug</span>, <span class="ident">PartialEq</span>, <span class="ident">Eq</span>)]</span>
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Copy</span>, <span class="ident">Clone</span>, <span class="ident">Debug</span>, <span class="ident">PartialEq</span>, <span class="ident">Eq</span>, <span class="ident">Default</span>)]</span>
 <span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">OpMeta</span> {
     <span class="kw">pub</span> <span class="ident">op</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;static</span> <span class="ident">str</span>,
     <span class="kw">pub</span> <span class="ident">asm_arg_count</span>: <span class="ident">usize</span>,
@@ -507,20 +493,6 @@
     <span class="kw">pub</span> <span class="ident">labelled</span>: <span class="ident">bool</span>,
     <span class="comment">// The cycle counts used are from https://github.com/superzazu/8080/blob/master/i8080.c#L7</span>
     <span class="kw">pub</span> <span class="ident">cycles</span>: <span class="ident">u8</span>,
-}
-
-<span class="kw">impl</span> <span class="ident">Default</span> <span class="kw">for</span> <span class="ident">OpMeta</span> {
-    <span class="kw">fn</span> <span class="ident">default</span>() -&gt; <span class="self">Self</span> {
-        <span class="self">Self</span> {
-            <span class="ident">op</span>: <span class="string">&quot;&quot;</span>,
-            <span class="ident">asm_arg_count</span>: <span class="number">0</span>,
-            <span class="ident">argb</span>: <span class="bool-val">false</span>,
-            <span class="ident">argw</span>: <span class="bool-val">false</span>,
-            <span class="ident">define</span>: <span class="bool-val">false</span>,
-            <span class="ident">labelled</span>: <span class="bool-val">false</span>,
-            <span class="ident">cycles</span>: <span class="number">0</span>,
-        }
-    }
 }
 
 <span class="kw">impl</span> <span class="ident">OpMeta</span> {
@@ -961,7 +933,7 @@
         <span class="kw">for</span> <span class="ident">i</span> <span class="kw">in</span> <span class="number">0x00</span>..<span class="op">=</span><span class="number">0xff</span> {
             <span class="kw">let</span> <span class="ident">inst_desc</span> <span class="op">=</span> <span class="macro">format!</span>(<span class="string">&quot;{:#04x} ({:#03}): {}&quot;</span>, <span class="ident">i</span>, <span class="ident">i</span>, <span class="ident">I8080_OP_META</span>[<span class="ident">i</span> <span class="kw">as</span> <span class="ident">usize</span>].<span class="ident">op</span>);
             <span class="macro">assert!</span>(
-                <span class="ident">I8080_OP_META</span>[<span class="ident">i</span> <span class="kw">as</span> <span class="ident">usize</span>].<span class="ident">op</span>.<span class="ident">len</span>() <span class="op">&gt;</span> <span class="number">0</span>,
+                <span class="op">!</span><span class="ident">I8080_OP_META</span>[<span class="ident">i</span> <span class="kw">as</span> <span class="ident">usize</span>].<span class="ident">op</span>.<span class="ident">is_empty</span>(),
                 <span class="string">&quot;Name not set: {}&quot;</span>,
                 <span class="ident">inst_desc</span>
             );
