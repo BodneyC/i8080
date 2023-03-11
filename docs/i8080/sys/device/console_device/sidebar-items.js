@@ -1,1 +1,1 @@
-initSidebarItems({"mod":[["special_chars",""]],"struct":[["ConsoleDevice",""]]});
+window.SIDEBAR_ITEMS = {"mod":[["special_chars",""]],"struct":[["ConsoleDevice",""]]};

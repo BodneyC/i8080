@@ -1,1 +1,1 @@
-initSidebarItems({"mod":[["errors",""],["lexer",""],["parser",""],["rpn",""],["shunting_yard",""],["token",""]]});
+window.SIDEBAR_ITEMS = {"mod":[["errors",""],["lexer",""],["parser",""],["rpn",""],["shunting_yard",""],["token",""]]};

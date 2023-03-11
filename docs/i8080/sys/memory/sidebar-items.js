@@ -1,1 +1,1 @@
-initSidebarItems({"constant":[["MAX_MEM",""]],"struct":[["Memory",""]]});
+window.SIDEBAR_ITEMS = {"constant":[["MAX_MEM",""]],"struct":[["Memory",""]]};

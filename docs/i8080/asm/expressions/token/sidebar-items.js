@@ -1,1 +1,1 @@
-initSidebarItems({"constant":[["LEFT_ASSOC",""],["RIGHT_ASSOC",""]],"enum":[["Token",""]]});
+window.SIDEBAR_ITEMS = {"constant":[["LEFT_ASSOC",""],["RIGHT_ASSOC",""]],"enum":[["Token",""]]};

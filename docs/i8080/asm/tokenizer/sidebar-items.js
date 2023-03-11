@@ -1,1 +1,1 @@
-initSidebarItems({"fn":[["tokenize",""]],"struct":[["LineMeta",""]]});
+window.SIDEBAR_ITEMS = {"fn":[["tokenize",""]],"struct":[["LineMeta",""]]};

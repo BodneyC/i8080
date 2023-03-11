@@ -1,1 +1,1 @@
-initSidebarItems({"fn":[["transform",""]]});
+window.SIDEBAR_ITEMS = {"fn":[["transform",""]]};

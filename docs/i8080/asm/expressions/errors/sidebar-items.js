@@ -1,1 +1,1 @@
-initSidebarItems({"enum":[["ExpressionError",""]]});
+window.SIDEBAR_ITEMS = {"enum":[["ExpressionError",""]]};

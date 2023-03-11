@@ -1,1 +1,1 @@
-initSidebarItems({"fn":[["main",""]],"mod":[["asm","Contains the assembler and disassembler"],["cli","Cli argument structures"],["ecodes","Exit codes"],["meta","Metadata for 8080 instructions"],["sys","System and emulator"],["util",""]]});
+window.SIDEBAR_ITEMS = {"fn":[["main",""]],"mod":[["asm","Contains the assembler and disassembler"],["cli","Cli argument structures"],["ecodes","Exit codes"],["meta","Metadata for 8080 instructions"],["sys","System and emulator"],["util",""]]};

@@ -1,1 +1,1 @@
-initSidebarItems({"fn":[["get_reg_defs",""]],"struct":[["Assembler",""],["Macro",""]]});
+window.SIDEBAR_ITEMS = {"fn":[["get_reg_defs",""]],"struct":[["Assembler",""],["Macro",""]]};

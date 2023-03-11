@@ -1,1 +1,1 @@
-initSidebarItems({"fn":[["char_width_one",""],["is_bit_set",""],["read_file_to_vec_u8",""],["read_lines",""],["u16_to_vec_u8",""],["vec_u8_to_u16",""]]});
+window.SIDEBAR_ITEMS = {"fn":[["char_width_one",""],["is_bit_set",""],["read_file_to_vec_u8",""],["read_lines",""],["u16_to_vec_u8",""],["vec_u8_to_u16",""]]};
