@@ -64,7 +64,7 @@ pub fn disassemble_instruction(v: &[u8], from: usize) -> Result<(String, usize),
         if meta.asm_arg_count == 2 {
             op.push(',');
         }
-        op.push_str(&format!(" {:#06x}", vec_u8_to_u16(v)));
+        op.push_str(&format!(" {:#06x}", vec_u8_to_u16(&v[1..])));
     }
     Ok((op, meta.width()))
 }
