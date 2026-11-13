@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":[["functions",""]],"struct":[["ExprFlags",""],["Lexer",""]]};
+window.SIDEBAR_ITEMS = {"fn":["functions"],"struct":["ExprFlags","Lexer"]};

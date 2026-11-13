@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":[["PROMPT_HELP",""]],"fn":[["parse_number",""],["prompt_cycle",""],["run_interactive",""],["run_system",""]],"macro":[["continue_on_err",""]],"mod":[["device","Simplistic IO device"],["flags",""],["i8080",""],["memory",""],["registers",""]]};
+window.SIDEBAR_ITEMS = {"constant":["PROMPT_HELP"],"fn":["parse_number","prompt_cycle","run_interactive","run_system"],"macro":[["continue_on_err",1]],"mod":["device","flags","i8080","memory","registers"]};

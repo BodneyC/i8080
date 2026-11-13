@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":[["disassemble_instruction",""],["disassemble_vec",""]]};
+window.SIDEBAR_ITEMS = {"fn":["disassemble_instruction","disassemble_vec"]};

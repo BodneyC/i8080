@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":[["ExpressionError",""]]};
+window.SIDEBAR_ITEMS = {"enum":["ExpressionError"]};

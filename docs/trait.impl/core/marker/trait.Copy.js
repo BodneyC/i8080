@@ -1,0 +1,9 @@
+(function() {
+    const implementors = Object.fromEntries([["i8080",[["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.99.1/core/marker/trait.Copy.html\" title=\"trait core::marker::Copy\">Copy</a> for <a class=\"enum\" href=\"i8080/asm/expressions/token/enum.Assoc.html\" title=\"enum i8080::asm::expressions::token::Assoc\">Assoc</a>",0],["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.99.1/core/marker/trait.Copy.html\" title=\"trait core::marker::Copy\">Copy</a> for <a class=\"struct\" href=\"i8080/asm/expressions/lexer/struct.ExprFlags.html\" title=\"struct i8080::asm::expressions::lexer::ExprFlags\">ExprFlags</a>",0],["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.99.1/core/marker/trait.Copy.html\" title=\"trait core::marker::Copy\">Copy</a> for <a class=\"struct\" href=\"i8080/asm/label/struct.Label.html\" title=\"struct i8080::asm::label::Label\">Label</a>",0],["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.99.1/core/marker/trait.Copy.html\" title=\"trait core::marker::Copy\">Copy</a> for <a class=\"enum\" href=\"i8080/asm/label/enum.LabelKind.html\" title=\"enum i8080::asm::label::LabelKind\">LabelKind</a>",0],["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.99.1/core/marker/trait.Copy.html\" title=\"trait core::marker::Copy\">Copy</a> for <a class=\"struct\" href=\"i8080/meta/struct.OpMeta.html\" title=\"struct i8080::meta::OpMeta\">OpMeta</a>",0]]]]);
+    if (window.register_implementors) {
+        window.register_implementors(implementors);
+    } else {
+        window.pending_implementors = implementors;
+    }
+})()
+//{"start":59,"fragment_lengths":[1380]}

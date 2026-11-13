@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":[["BEL",""],["BS",""],["CR",""],["EOT",""],["ETB",""],["LF",""],["NUL",""]]};
+window.SIDEBAR_ITEMS = {"constant":["BEL","BS","CR","EOT","ETB","LF","NUL"]};

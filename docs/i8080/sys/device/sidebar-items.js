@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"mod":[["console_device","Console printing device for the emulator"]],"struct":[["RxDevice",""],["TxDevice",""]]};
+window.SIDEBAR_ITEMS = {"mod":["console_device"],"struct":["RxDevice","TxDevice"]};

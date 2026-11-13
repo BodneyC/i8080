@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":[["get_reg_defs",""]],"struct":[["Assembler",""],["Macro",""]]};
+window.SIDEBAR_ITEMS = {"constant":["ADDRESS_SPACE","REGISTERS"],"fn":["expr_value","first_arg","register_definitions","validate_op"],"struct":["Assembler","Macro","ParseState"]};
