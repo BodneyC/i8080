@@ -1,3 +1,13 @@
+//! Splits a line of assembly into its label, instruction, arguments, and comment
+//!
+//! The syntax is simple enough that no proper grammar is used, the general form of a line is:
+//!
+//! ```asm
+//! [LABEL:] [INSTRUCTION [ARG[, ARG...]]] [; COMMENT]
+//! ```
+//!
+//! Everything outside of string literals is made uppercase.
+
 use super::{
     errors::{OpParseError, ParserError},
     find_op_code,
@@ -8,35 +18,21 @@ pub struct LineMeta {
     pub raw_line: String,
     pub line_no: usize,
     pub comment: Option<String>,
+    /// Instruction, meta-instruction, or macro name; `None` only when `label_only`
     pub inst: Option<String>,
     pub args_list: Vec<String>,
     pub label: Option<String>,
+    /// An estimated op-code; the true op-code is only known once arguments are resolved
+    ///
+    /// `None` implies the instruction is a macro invocation
     pub op_code: Option<u16>,
     pub label_only: bool,
+    /// Absolute address for program lines, offset from the start of the macro for macro lines
     pub address: u16,
     pub width: usize,
-    pub uses_pc: bool,
 }
 
 impl LineMeta {
-    pub fn erroring(line: &LineMeta) -> Self {
-        trace!("@{} | {}", line.line_no, line.raw_line);
-        Self {
-            line_no: line.line_no,
-            raw_line: line.raw_line.to_string(),
-            ..Default::default()
-        }
-    }
-
-    pub fn from_raw(line_no: usize, raw_line: String) -> Self {
-        trace!("@{} | {}", line_no, raw_line);
-        Self {
-            line_no,
-            raw_line,
-            ..Default::default()
-        }
-    }
-
     pub fn label_only(label: Option<String>, comment: Option<String>, raw_line: String) -> Self {
         Self {
             label,
@@ -48,48 +44,99 @@ impl LineMeta {
     }
 }
 
-// A more robust system wouldn't be a bad idea, but as the syntax is fairly simple might as
-// well do it fairly simply
+/// Byte index of the first `target` in `s` which isn't inside a string literal
+fn find_unquoted(s: &str, target: char) -> Option<usize> {
+    let mut in_quotes = false;
+    let mut escaped = false;
+    for (idx, c) in s.char_indices() {
+        if in_quotes {
+            if escaped {
+                escaped = false;
+            } else if c == '\\' {
+                escaped = true;
+            } else if c == '\'' {
+                in_quotes = false;
+            }
+        } else if c == '\'' {
+            in_quotes = true;
+        } else if c == target {
+            return Some(idx);
+        }
+    }
+    None
+}
+
+fn validate_label(label: &str) -> Result<(), ParserError> {
+    let mut chars = label.chars();
+    let valid_start = chars.next().is_some_and(|c| c == '_' || c.is_alphabetic());
+    if valid_start && chars.all(|c| c == '_' || c.is_alphanumeric()) {
+        Ok(())
+    } else {
+        Err(ParserError::InvalidLabel(label.to_string()))
+    }
+}
+
+/// Split comma-separated arguments, uppercasing everything outside of string literals
+fn split_args(args: &str) -> Result<Vec<String>, ParserError> {
+    let mut args_list: Vec<String> = vec![];
+    let mut this_arg = String::new();
+    let mut in_quotes = false;
+    let mut escaped = false;
+
+    for c in args.chars() {
+        if in_quotes {
+            this_arg.push(c);
+            if escaped {
+                escaped = false;
+            } else if c == '\\' {
+                escaped = true;
+            } else if c == '\'' {
+                in_quotes = false;
+            }
+        } else if c == ',' {
+            args_list.push(std::mem::take(&mut this_arg));
+        } else {
+            in_quotes = c == '\'';
+            this_arg.extend(c.to_uppercase());
+        }
+    }
+
+    if in_quotes {
+        return Err(ParserError::UnterminatedString(args.to_string()));
+    }
+    args_list.push(this_arg);
+
+    let args_list: Vec<String> = args_list.iter().map(|a| a.trim().to_string()).collect();
+    if args_list.iter().any(String::is_empty) {
+        return Err(ParserError::EmptyArgument);
+    }
+    Ok(args_list)
+}
+
+/// Tokenize a single line of assembly
+///
+/// Returns `None` for lines containing nothing but whitespace and/or a comment
 pub fn tokenize(raw_line: &str) -> Result<Option<LineMeta>, ParserError> {
     let mut line = raw_line.trim();
+
     let mut comment: Option<String> = None;
-    // Check for a comment in the line
-    if let Some(comment_idx) = line.find(';') {
-        if line.len() > comment_idx {
-            comment = Some(line[comment_idx + 1..].trim().to_string());
-        }
+    if let Some(comment_idx) = find_unquoted(line, ';') {
+        comment = Some(line[comment_idx + 1..].trim().to_string());
         line = line[..comment_idx].trim();
     }
 
-    // If no line remains, tokenize is still successful, but no LineMeta is returned
     if line.is_empty() {
         return Ok(None);
     }
 
     let mut label: Option<String> = None;
-    // Check if some label precedes the instruction
-    if let Some(label_idx) = line.find(':') {
+    if let Some(label_idx) = find_unquoted(line, ':') {
         let label_str = line[..label_idx].trim().to_uppercase();
-        if label_str.is_empty() {
-            return Err(ParserError::InvalidLabel(label_str));
-        }
-        for (idx, c) in label_str.chars().enumerate() {
-            if idx == 0 && c != '_' && !c.is_alphabetic() {
-                return Err(ParserError::InvalidLabel(label_str));
-            }
-            if c != '_' && !c.is_alphabetic() && !c.is_numeric() {
-                return Err(ParserError::InvalidLabel(label_str));
-            }
-        }
+        validate_label(&label_str)?;
         label = Some(label_str);
-        if line.len() > label_idx {
-            line = line[label_idx + 1..].trim();
-        } else {
-            line = "";
-        }
+        line = line[label_idx + 1..].trim();
     }
 
-    // If no line remains, line is just a marker for a label
     if line.is_empty() {
         return Ok(Some(LineMeta::label_only(
             label,
@@ -97,74 +144,23 @@ pub fn tokenize(raw_line: &str) -> Result<Option<LineMeta>, ParserError> {
             raw_line.to_string(),
         )));
     }
-    let mut raw_args: Option<String> = None;
-    // Look for the space between instruction and args
-    if let Some(args_idx) = line.find(' ') {
-        // No bounds check here as we trim before
-        raw_args = Some(line[args_idx + 1..].trim().to_string());
-        line = line[..args_idx].trim();
-    }
 
-    let mut args_list: Vec<String> = vec![];
-    // If any args exists...
-    if let Some(args) = raw_args {
-        let mut in_quotes: bool = false;
-        let mut char_escaped: bool = false;
-        let mut this_arg: String = String::new();
-        for (idx, c) in args.chars().enumerate() {
-            // Start or stop "being" in a string unless escaped
-            if c == '\'' && !char_escaped {
-                in_quotes = !in_quotes;
-            }
-            // If we are escaping this character, unset it
-            if char_escaped {
-                char_escaped = false;
-            }
-            // Only escape inside a string
-            if c == '\\' && in_quotes {
-                char_escaped = true;
-            }
-            // is_escaped can only be set inside a string
-            if c == ',' && !in_quotes {
-                args_list.push(this_arg.trim().to_string());
-                this_arg = String::new();
-            } else {
-                // Push to this arg before checking end of string
-                if in_quotes {
-                    this_arg.push(c);
-                } else {
-                    this_arg.push(c.to_uppercase().next().unwrap_or(c));
-                }
-            }
-            if idx == args.len() - 1 {
-                if in_quotes {
-                    return Err(ParserError::UnterminatedString(args));
-                }
-                args_list.push(this_arg.trim().to_string());
-            }
-        }
-    }
+    let (inst, args_list) = match line.split_once(char::is_whitespace) {
+        Some((inst, args)) => (inst, split_args(args.trim())?),
+        None => (line, vec![]),
+    };
+    let inst = inst.to_uppercase();
 
     // Expression resolution is required to know the true op code, however all op codes of the
     // same instruction are the same width which we can use to work out label addressing for
     // expression parsing
     //
     // E.g. MOV M, A is one byte, as is MOV A, A
-    //
-    // It is this expression parsing that will give us the true arguments and then the true
-    // operation code... in short, `op_code` is a temporary value...
-    //
-    // *Note*: The NoSuchInstruction could be caused by a macro...
-    let op_code: Option<u16>;
-    let inst = line.to_uppercase();
-    match find_op_code::from_args(inst.as_str(), 0, 0) {
-        Ok(op) => op_code = Some(op as u16),
-        Err(e) => match e {
-            OpParseError::NoSuchInstruction(_) => op_code = None,
-            _ => {
-                return Err(ParserError::NoInstructionFound(e));
-            }
-        },
+    let op_code = match find_op_code::from_args(&inst, 0, 0) {
+        Ok(op) => Some(op as u16),
+        // Could be a macro, this is checked by the assembler
+        Err(OpParseError::NoSuchInstruction(_)) => None,
+        Err(e) => return Err(e.into()),
     };
 
     Ok(Some(LineMeta {
@@ -294,5 +290,46 @@ mod tests {
         assert_eq!(meta.args_list, vec!["XOR 'fish'", "B"], "args");
     }
 
-    // strings
+    #[test]
+    fn delimiters_in_strings() {
+        let meta = tokenize("_l: CPI ';' ; real comment")
+            .expect("tokenizer failed")
+            .unwrap();
+        assert_eq!(meta.label, Some("_L".to_string()));
+        assert_eq!(meta.args_list, vec!["';'"]);
+        assert_eq!(meta.comment, Some("real comment".to_string()));
+
+        let meta = tokenize("DB 'a:b', 'it\\'s'")
+            .expect("tokenizer failed")
+            .unwrap();
+        assert_eq!(meta.label, None);
+        assert_eq!(meta.args_list, vec!["'a:b'", "'it\\'s'"]);
+    }
+
+    #[test]
+    fn non_ascii_string_keeps_last_arg() {
+        let meta = tokenize("DB 'héllo', 0")
+            .expect("tokenizer failed")
+            .unwrap();
+        assert_eq!(meta.args_list, vec!["'héllo'", "0"]);
+    }
+
+    #[test]
+    fn tab_separated_instruction() {
+        let meta = tokenize("MOV\tA, B").expect("tokenizer failed").unwrap();
+        assert_eq!(meta.inst, Some("MOV".to_string()));
+        assert_eq!(meta.args_list, vec!["A", "B"]);
+    }
+
+    #[test]
+    fn empty_and_unterminated_args() {
+        let e = tokenize("DB 1,").expect_err("trailing comma");
+        assert!(matches!(e, ParserError::EmptyArgument));
+        let e = tokenize("DB 'abc").expect_err("unterminated string");
+        assert!(matches!(e, ParserError::UnterminatedString(_)));
+        let e = tokenize(": NOP").expect_err("empty label");
+        assert!(matches!(e, ParserError::InvalidLabel(_)));
+        let e = tokenize("1abc: NOP").expect_err("label starting with a digit");
+        assert!(matches!(e, ParserError::InvalidLabel(_)));
+    }
 }

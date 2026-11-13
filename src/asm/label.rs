@@ -1,38 +1,41 @@
 //! Label container specifying the type of value/instruction the label relates to
 
-#[derive(Debug, Clone, Copy)]
+/// How a label was defined, which determines whether it may later be redefined
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LabelKind {
+    /// Marks the address of the line it is attached to
+    Address,
+    /// Defined by `EQU`, immutable
+    Equ,
+    /// Defined by `SET`, may be redefined by a later `SET`
+    Set,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Label {
-    pub value: Option<u16>,
-    pub is_addr: bool,
-    pub is_eq: bool,
-    pub is_set: bool,
+    pub value: u16,
+    pub kind: LabelKind,
 }
 
 impl Label {
-    pub fn new_addr(val: Option<u16>) -> Self {
+    pub fn new_addr(value: u16) -> Self {
         Self {
-            value: val,
-            is_addr: true,
-            is_eq: false,
-            is_set: false,
+            value,
+            kind: LabelKind::Address,
         }
     }
 
-    pub fn new_equ(val: Option<u16>) -> Self {
+    pub fn new_equ(value: u16) -> Self {
         Self {
-            value: val,
-            is_addr: false,
-            is_eq: true,
-            is_set: false,
+            value,
+            kind: LabelKind::Equ,
         }
     }
 
-    pub fn new_set(val: Option<u16>) -> Self {
+    pub fn new_set(value: u16) -> Self {
         Self {
-            value: val,
-            is_addr: false,
-            is_eq: false,
-            is_set: true,
+            value,
+            kind: LabelKind::Set,
         }
     }
 }

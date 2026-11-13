@@ -41,9 +41,16 @@ pub struct RunArgs {
     pub interactive: bool,
     #[clap(short, long, help = "Provided file requires assembly")]
     pub assemble: bool,
+    #[clap(
+        long,
+        visible_alias = "no-reg-defs",
+        requires = "assemble",
+        help = "Don't define the register names when assembling"
+    )]
+    pub no_register_definitions: bool,
     #[clap(long, help = "Disable the console device")]
     pub no_console: bool,
-    #[clap(long, help = "Sleep occasionally to match 2HZ")]
+    #[clap(long, help = "Sleep occasionally to match the 2MHz clock speed")]
     pub emulate_clock_speed: bool,
 }
 
@@ -66,10 +73,10 @@ pub struct AssembleArgs {
 
     #[clap(
         long,
-        visible_alias = "reg-defs",
-        help = "Include register EQU statements"
+        visible_alias = "no-reg-defs",
+        help = "Don't define the register names (A, B, C, D, E, H, L, M)"
     )]
-    pub register_definitions: bool,
+    pub no_register_definitions: bool,
 }
 
 #[derive(Debug, Args)]

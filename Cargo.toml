@@ -2,6 +2,9 @@
 name = "i8080"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.87"
+description = "An Intel 8080 emulator, assembler, and disassembler"
+repository = "https://github.com/BodneyC/i8080"
 
 [dependencies]
 clap = { version = "3.1.13", features = ["derive"] }
@@ -9,3 +12,11 @@ env_logger = "0.8.4"
 log = "0.4.0"
 rand = "0.8.4"
 rustyline = "9.1.2"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+dbg_macro = "warn"
+todo = "warn"
+unimplemented = "warn"

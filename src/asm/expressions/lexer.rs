@@ -1,40 +1,37 @@
 use std::collections::HashMap;
-use std::isize;
 use std::iter;
 use std::str;
 
 use crate::asm::label::Label;
 
 use super::errors::ExpressionError;
-use super::token::Token;
-use super::token::LEFT_ASSOC;
+use super::token::{Assoc, Token};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Properties of an expression which affect how the assembler treats its value
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct ExprFlags {
+    /// The expression is the `SP` register
     pub sp: bool,
+    /// The expression is the `PSW` register pair
     pub psw: bool,
+    /// The expression uses the program counter (`$`)
     pub pc: bool,
+    /// The expression is a string of more than one character
     pub string: bool,
 }
 
 impl ExprFlags {
     pub fn new() -> Self {
-        Self {
-            sp: false,
-            psw: false,
-            pc: false,
-            string: false,
-        }
+        Self::default()
     }
 }
 
-fn functions(ident: String) -> Option<Token> {
-    match ident.as_str() {
-        "XOR" => Some(Token::Operator('^', LEFT_ASSOC, 4)),
-        "AND" => Some(Token::Operator('&', LEFT_ASSOC, 4)),
-        "OR" => Some(Token::Operator('|', LEFT_ASSOC, 4)),
-        "NOT" => Some(Token::Unary(ident)),
-        "NEG" => Some(Token::Unary(ident)),
+fn functions(ident: &str) -> Option<Token> {
+    match ident {
+        "XOR" => Some(Token::Operator('^', Assoc::Left, 4)),
+        "AND" => Some(Token::Operator('&', Assoc::Left, 4)),
+        "OR" => Some(Token::Operator('|', Assoc::Left, 4)),
+        "NOT" | "NEG" => Some(Token::Unary(ident.to_string())),
         _ => None,
     }
 }
@@ -68,18 +65,15 @@ impl<'a> Lexer<'a> {
         while let Some(&c) = self.iter.peek() {
             let consume_next: bool = if c.is_whitespace() {
                 true
-            } else if c.is_numeric() {
+            } else if c.is_ascii_digit() {
                 let (number, radix) = self.consume_number();
-                match isize::from_str_radix(&number, radix) {
-                    Ok(val) => {
-                        tokens.push(Token::Number(val as u16));
-                    }
-                    Err(e) => return Err(ExpressionError::NumberParseError(e)),
-                }
+                let val = u16::from_str_radix(&number, radix)
+                    .map_err(ExpressionError::NumberParseError)?;
+                tokens.push(Token::Number(val));
                 false
             } else if c.is_alphabetic() || c == '_' {
                 let ident = self.consume_identifier();
-                if let Some(operator) = functions(ident.to_string()) {
+                if let Some(operator) = functions(&ident) {
                     tokens.push(operator);
                 }
                 // These should come before the label check as someone might use an SP label
@@ -90,7 +84,7 @@ impl<'a> Lexer<'a> {
                     flags.sp = true;
                     tokens.push(Token::MetaIdentifier(ident));
                 } else if let Some(label) = labels.get(&ident) {
-                    tokens.push(Token::Number(label.value.unwrap()));
+                    tokens.push(Token::Number(label.value));
                 } else {
                     return Err(ExpressionError::UnknownIdentifier(ident));
                 }
@@ -99,8 +93,9 @@ impl<'a> Lexer<'a> {
                 match c {
                     '\'' => {
                         let s = self.consume_string()?;
-                        if s.len() == 1 {
-                            tokens.push(Token::Number(s.chars().next().unwrap() as u16))
+                        let mut chars = s.chars();
+                        if let (Some(ch), None) = (chars.next(), chars.next()) {
+                            tokens.push(Token::Number(ch as u16))
                         } else {
                             flags.string = true;
                             tokens.push(Token::String(s));
@@ -111,10 +106,10 @@ impl<'a> Lexer<'a> {
                         tokens.push(Token::Number(self.address));
                     }
                     '+' | '-' => {
-                        tokens.push(Token::Operator(c, LEFT_ASSOC, 2));
+                        tokens.push(Token::Operator(c, Assoc::Left, 2));
                     }
                     '*' | '/' => {
-                        tokens.push(Token::Operator(c, LEFT_ASSOC, 3));
+                        tokens.push(Token::Operator(c, Assoc::Left, 3));
                     }
                     '(' => tokens.push(Token::LParen),
                     ')' => tokens.push(Token::RParen),
@@ -140,7 +135,6 @@ impl<'a> Lexer<'a> {
         let mut s = String::new();
 
         for c in self.iter.by_ref() {
-            // while let Some(c) = self.iter.next() {
             if escaped {
                 escaped = false;
                 let escaped_char: char = match c {
@@ -176,7 +170,7 @@ impl<'a> Lexer<'a> {
         let mut s = String::new();
         let mut radix: u32 = 10;
         while let Some(&c) = self.iter.peek() {
-            if c.is_numeric() || (radix == 16 && c >= 'A' && c <= 'F') {
+            if c.is_ascii_digit() || (radix == 16 && ('A'..='F').contains(&c)) {
                 s.push(c);
             } else if s.len() == 1 && s.starts_with('0') {
                 if c == 'X' {
@@ -200,7 +194,7 @@ impl<'a> Lexer<'a> {
     fn consume_identifier(&mut self) -> String {
         let mut s = String::new();
         while let Some(&c) = self.iter.peek() {
-            if c.is_alphabetic() || c == '_' || c.is_numeric() {
+            if c.is_alphanumeric() || c == '_' {
                 s.push(c);
             } else {
                 break;
@@ -305,7 +299,7 @@ mod tests {
         assert_eq!(tokens.len(), 5, "should be four tokens");
         assert_eq!(flags, ExprFlags::new());
 
-        is_number_of_value(tokens.get(0).unwrap(), 2, "binary parse");
+        is_number_of_value(tokens.first().unwrap(), 2, "binary parse");
         is_number_of_value(tokens.get(1).unwrap(), 8, "octal parse");
         is_number_of_value(tokens.get(2).unwrap(), 10, "decimal parse");
         is_number_of_value(tokens.get(3).unwrap(), 16, "hexadecimal parse");
@@ -327,7 +321,7 @@ mod tests {
         let mut lexer = Lexer::new();
 
         let mut labels = HashMap::new();
-        labels.insert(label_string.to_string(), Label::new_addr(Some(label_val)));
+        labels.insert(label_string.to_string(), Label::new_addr(label_val));
 
         let s = format!("'hello' XOR+17 {}", label_string);
 
@@ -339,7 +333,7 @@ mod tests {
         _flags.string = true;
         assert_eq!(flags, _flags);
 
-        let t0 = tokens.get(0).unwrap();
+        let t0 = tokens.first().unwrap();
         assert!(matches!(t0, Token::String(_)));
         if let Token::String(s) = t0 {
             assert_eq!(s, "hello");

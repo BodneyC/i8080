@@ -43,28 +43,24 @@ use crate::util::vec_u8_to_u16;
 
 use super::errors::DisassembleError;
 
+/// Disassemble the instruction at `from`, returning its text and width in bytes
 pub fn disassemble_instruction(v: &[u8], from: usize) -> Result<(String, usize), DisassembleError> {
-    let v = &v[from..];
-    let inst = v.get(0);
-    if inst.is_none() {
-        return Err(DisassembleError::NoRemainingBytes(from));
-    }
-    let inst = inst.unwrap();
-    let meta = I8080_OP_META[*inst as usize];
+    let v = v.get(from..).unwrap_or_default();
+    let inst = *v.first().ok_or(DisassembleError::NoRemainingBytes(from))?;
+    let meta = I8080_OP_META[usize::from(inst)];
     if v.len() < meta.width() {
         return Err(DisassembleError::NotEnoughBytes(from, meta.op, v.to_vec()));
     }
     let mut op: String = meta.op.to_owned();
-    if meta.argb {
+    if meta.argb || meta.argw {
         if meta.asm_arg_count == 2 {
             op.push(',');
         }
-        op.push_str(&format!(" {:#04x}", v.get(1).unwrap()));
-    } else if meta.argw {
-        if meta.asm_arg_count == 2 {
-            op.push(',');
+        if meta.argb {
+            op.push_str(&format!(" {:#04x}", v[1]));
+        } else {
+            op.push_str(&format!(" {:#06x}", vec_u8_to_u16(&v[1..3])));
         }
-        op.push_str(&format!(" {:#06x}", vec_u8_to_u16(&v[1..])));
     }
     Ok((op, meta.width()))
 }
@@ -75,16 +71,33 @@ pub fn disassemble_vec(v: &[u8]) -> Result<Vec<String>, DisassembleError> {
     while from < v.len() {
         let (s, width) = disassemble_instruction(v, from)?;
         strings.push(s);
-        // Shouldn't happen but peace of mind is nice
-        if width == 0 {
-            let to = if from + 3 > v.len() {
-                from + 3
-            } else {
-                v.len()
-            };
-            return Err(DisassembleError::UnknownError(from, v[from..to].to_vec()));
-        }
         from += width;
     }
     Ok(strings)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn instructions_with_arguments() {
+        let v = [0x3e, 0xde, 0x01, 0x34, 0x12, 0xc3, 0xef, 0xbe];
+        assert_eq!(
+            disassemble_vec(&v).unwrap(),
+            vec!["MVI A, 0xde", "LXI B, 0x1234", "JMP 0xbeef"]
+        );
+    }
+
+    #[test]
+    fn truncated_input() {
+        assert!(matches!(
+            disassemble_vec(&[0xc3, 0x00]),
+            Err(DisassembleError::NotEnoughBytes(0, "JMP", _))
+        ));
+        assert!(matches!(
+            disassemble_instruction(&[0x00], 5),
+            Err(DisassembleError::NoRemainingBytes(5))
+        ));
+    }
 }

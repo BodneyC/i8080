@@ -28,7 +28,7 @@ pub fn parse_expression<S: Into<String>>(
     let exp = exp.into();
     let mut lexer = Lexer::new();
 
-    let (tokens, flags) = lexer.lex(exp.as_str(), addr, labels).unwrap();
+    let (tokens, flags) = lexer.lex(exp.as_str(), addr, labels)?;
 
     let out: Vec<u8> = match tokens.len() {
         0 => vec![],
@@ -39,10 +39,11 @@ pub fn parse_expression<S: Into<String>>(
             tok => return Err(ExpressionError::NotANumber(tok.clone())),
         },
         _ => {
-            for tok in tokens.iter() {
-                if let Token::MetaIdentifier(val) = tok {
-                    return Err(ExpressionError::MetaUsedInCalculation(val.to_string()));
-                }
+            if let Some(Token::MetaIdentifier(val)) = tokens
+                .iter()
+                .find(|tok| matches!(tok, Token::MetaIdentifier(_)))
+            {
+                return Err(ExpressionError::MetaUsedInCalculation(val.to_string()));
             }
             let output_queue: Vec<Token> = shunting_yard::transform(tokens)?;
             let val: u16 = rpn::calculate(&output_queue)?;
@@ -129,9 +130,22 @@ mod tests {
     }
 
     #[test]
+    fn errors_are_returned_not_panicked() {
+        for expr in [
+            "1 +", "UNKNOWN", "1 / 0", "(1 + 2", "1 + 2)", "'AB' + 1", "0x10000",
+        ] {
+            assert!(
+                parse_expression(expr, 0, &HashMap::new()).is_err(),
+                "'{}' should be an error",
+                expr
+            );
+        }
+    }
+
+    #[test]
     fn all_together() {
         let mut labels = HashMap::new();
-        labels.insert("_ident".to_string(), Label::new_addr(Some(0xf12d)));
+        labels.insert("_ident".to_string(), Label::new_addr(0xf12d));
 
         let r = parse_expression("12 XOR NOT (_ident + 2)", 0, &labels);
         assert!(r.is_ok(), "expr is invalid: {}", r.unwrap_err());

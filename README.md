@@ -34,6 +34,28 @@ Which opens a prompt.
 
 ## Docs
 
-See the [docs](https://bodneyc.github.io/i8080) for more.
+See the [docs](https://bodneyc.github.io/i8080) for more, or build them locally with:
+
+```sh
+cargo doc --no-deps --document-private-items --open
+```
+
+## Development
+
+Formatting, linting, and tests are run as [pre-commit](https://pre-commit.com) hooks, the same
+checks run in CI:
+
+```sh
+pre-commit install --install-hooks -t pre-commit -t pre-push
+pre-commit run --all-files
+```
+
+Or individually:
+
+```sh
+cargo fmt --all
+cargo clippy --all-targets -- -D warnings
+cargo test
+```
 
 <!-- markdownlint-disable-file MD013 -->

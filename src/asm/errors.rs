@@ -1,6 +1,6 @@
 //! Various error which may be returned by the assembler
 
-use std::{fmt, io};
+use std::{error::Error, fmt, io};
 
 use crate::asm::label::Label;
 
@@ -11,9 +11,24 @@ pub enum AssemblerError {
     FileRead(io::Error),
     Parser(ParserError),
     CodeGen(CodeGenError),
+    /// Wraps another error with the source line it originated from
+    AtLine {
+        line_no: usize,
+        raw_line: String,
+        source: Box<AssemblerError>,
+    },
 }
 
-impl std::error::Error for AssemblerError {}
+impl Error for AssemblerError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::FileRead(e) => Some(e),
+            Self::Parser(e) => Some(e),
+            Self::CodeGen(e) => Some(e),
+            Self::AtLine { source, .. } => Some(source.as_ref()),
+        }
+    }
+}
 
 impl fmt::Display for AssemblerError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -21,7 +36,18 @@ impl fmt::Display for AssemblerError {
             Self::FileRead(e) => write!(f, "{}", e),
             Self::Parser(e) => write!(f, "{}", e),
             Self::CodeGen(e) => write!(f, "{}", e),
+            Self::AtLine {
+                line_no,
+                raw_line,
+                source,
+            } => write!(f, "{}\n\n  {: <3}| {}", source, line_no, raw_line),
         }
+    }
+}
+
+impl From<io::Error> for AssemblerError {
+    fn from(e: io::Error) -> Self {
+        AssemblerError::FileRead(e)
     }
 }
 
@@ -44,10 +70,10 @@ pub enum ParserError {
     UnknownDefine(String),
 
     NoArgsForVariadic,
+    EmptyArgument,
     WrongNumberOfArgs(usize, usize),
     OperationRequiresLabel(String),
 
-    // InvalidExpression,
     InvalidArgument(String, String),
     UnterminatedString(String),
     InvalidLabel(String),
@@ -55,12 +81,14 @@ pub enum ParserError {
     LabelAlreadyDefined(String, Label),
     NoInstructionFound(OpParseError),
 
-    OrigInMacro,
+    AddressOverflow,
+    OrgBeforeLoadAddress(u16, u16),
+
+    OrgInMacro,
     DefineInMacro,
     NotInMacro,
     NestedMacro,
-    MacroCallInMacroUsesSp,
-    MacroUseBeforeCreation,
+    MacroUseBeforeCreation(String),
     RecursiveMacro,
     NoEndMacro,
 
@@ -71,41 +99,50 @@ pub enum ParserError {
     NoEndIf,
 }
 
-impl std::error::Error for ParserError {}
+impl Error for ParserError {}
 
 impl fmt::Display for ParserError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Self::ExpressionError(e) => write!(f, "Expression evaluation error: {:?}", e),
+            Self::ExpressionError(e) => write!(f, "Expression evaluation error: {}", e),
             Self::UnknownDefine(s) => write!(f, "Unknown vararg: {}", s),
 
             Self::NoArgsForVariadic => write!(f, "No arguments given for variadic instruction"),
+            Self::EmptyArgument => write!(f, "Empty argument"),
             Self::WrongNumberOfArgs(req, rec) => write!(
                 f,
                 "Invalid argument count, required {}, received {}",
                 req, rec
             ),
-            Self::OperationRequiresLabel(s) => write!(f, "Operation ({}) required label", s),
+            Self::OperationRequiresLabel(s) => write!(f, "Operation ({}) requires a label", s),
 
-            // Self::InvalidExpression => write!(f, ""),
             Self::InvalidArgument(inst, arg) => write!(f, "Invalid arg for {}, {}", inst, arg),
             Self::UnterminatedString(s) => write!(f, "Unterminated string: [{}]", s),
             Self::InvalidLabel(s) => write!(f, "Invalid label: [{}]", s),
 
             Self::LabelAlreadyDefined(s, l) => {
-                write!(f, "Label ({}) already defined at {:?}", s, l)
+                write!(f, "Label ({}) already defined as {:?}", s, l)
             }
-            Self::NoInstructionFound(_) => write!(f, ""),
+            Self::NoInstructionFound(e) => write!(f, "{}", e),
 
-            Self::OrigInMacro => write!(f, "ORIG used in macro"),
-            Self::DefineInMacro => write!(f, "Cannot define (DB DW DB) in macro"),
+            Self::AddressOverflow => write!(f, "Program exceeds the 64KiB address space"),
+            Self::OrgBeforeLoadAddress(org, load) => write!(
+                f,
+                "ORG address ({:#06x}) is before the load address ({:#06x})",
+                org, load
+            ),
+
+            Self::OrgInMacro => write!(f, "ORG used in macro"),
+            Self::DefineInMacro => write!(f, "Cannot define (DB, DW, DS) in macro"),
             Self::NotInMacro => write!(f, "ENDM found before MACRO"),
             Self::NestedMacro => write!(f, "Nested MACRO not permitted"),
-            Self::MacroCallInMacroUsesSp => write!(
-                f,
-                "Use of a macro which uses SP ('$') inside another macro is not permitted"
-            ),
-            Self::MacroUseBeforeCreation => write!(f, "Macro used before its definition"),
+            Self::MacroUseBeforeCreation(s) => {
+                write!(
+                    f,
+                    "Unknown instruction or macro used before definition: {}",
+                    s
+                )
+            }
             Self::RecursiveMacro => write!(f, "Use of macro from within macro definition"),
             Self::NoEndMacro => write!(f, "No ENDM found"),
 
@@ -124,21 +161,27 @@ impl From<ExpressionError> for ParserError {
     }
 }
 
+impl From<OpParseError> for ParserError {
+    fn from(e: OpParseError) -> Self {
+        ParserError::NoInstructionFound(e)
+    }
+}
+
 #[derive(Debug)]
 pub enum CodeGenError {
     ParserError(ParserError),
     UnexpectedLength(usize, usize),
 }
 
-impl std::error::Error for CodeGenError {}
+impl Error for CodeGenError {}
 
 impl fmt::Display for CodeGenError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            CodeGenError::ParserError(e) => write!(f, "Expression error: {}", e),
+            CodeGenError::ParserError(e) => write!(f, "{}", e),
             CodeGenError::UnexpectedLength(exp, act) => write!(
                 f,
-                "Byte length generate ({}) differs from expected ({})",
+                "Byte length generated ({}) differs from expected ({})",
                 act, exp,
             ),
         }
@@ -153,7 +196,13 @@ impl From<ParserError> for CodeGenError {
 
 impl From<ExpressionError> for CodeGenError {
     fn from(e: ExpressionError) -> Self {
-        CodeGenError::ParserError(ParserError::ExpressionError(e))
+        CodeGenError::ParserError(e.into())
+    }
+}
+
+impl From<OpParseError> for CodeGenError {
+    fn from(e: OpParseError) -> Self {
+        CodeGenError::ParserError(e.into())
     }
 }
 
@@ -165,14 +214,14 @@ pub enum OpParseError {
     NoSuchInstruction(String),
 }
 
-impl std::error::Error for OpParseError {}
+impl Error for OpParseError {}
 
 impl fmt::Display for OpParseError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::UnknownRegister => write!(f, "No register represented"),
             Self::InvalidRegister => write!(f, "Register invalid for instruction"),
-            Self::MovAsHalt => write!(f, "0x76 represents a HALT"),
+            Self::MovAsHalt => write!(f, "MOV M, M is not valid (0x76 represents HLT)"),
             Self::NoSuchInstruction(inst) => write!(f, "No instruction represented by [{}]", inst),
         }
     }
@@ -180,12 +229,13 @@ impl fmt::Display for OpParseError {
 
 #[derive(Debug)]
 pub enum DisassembleError {
-    NoRemainingBytes(usize),                      // addr, width
-    NotEnoughBytes(usize, &'static str, Vec<u8>), // addr, inst, ~3 bytes
-    UnknownError(usize, Vec<u8>),                 // addr, ~3 bytes
+    /// Address past the end of the input
+    NoRemainingBytes(usize),
+    /// Address, mnemonic, and the remaining bytes
+    NotEnoughBytes(usize, &'static str, Vec<u8>),
 }
 
-impl std::error::Error for DisassembleError {}
+impl Error for DisassembleError {}
 
 impl fmt::Display for DisassembleError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -197,9 +247,6 @@ impl fmt::Display for DisassembleError {
                     "@{} Not enough bytes for instruction [{}]\n  {:?}...",
                     addr, op, v
                 )
-            }
-            Self::UnknownError(addr, v) => {
-                write!(f, "@{} Unknown disassembly error\n  {:?}...", addr, v)
             }
         }
     }

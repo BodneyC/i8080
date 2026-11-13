@@ -13,12 +13,13 @@
 //! # Interrupts
 //!
 //! Interrupts may be issued as single `u8` operation codes as per the manual I found somewhere;
-//! currently this is only use in interactive mode as the `i` command performs this function.
+//! currently this is only use in interactive mode as the `i` command performs this function. As
+//! on the real CPU, interrupts start disabled and are only serviced after an `EI` instruction.
 //!
 //! # Interactive
 //!
-//! The emulator can be ran interactively, this will drop you into a prompt where you can
-//! cycling/debug the CPU.
+//! The emulator can be run interactively, this will drop you into a prompt where you can
+//! cycle/debug the CPU.
 
 pub mod i8080;
 
@@ -56,7 +57,7 @@ pub fn run_system(args: RunArgs) -> i32 {
         I8080::new(vec![], vec![])
     } else {
         let (tx, rx): (Sender<u8>, Receiver<u8>) = mpsc::channel();
-        console = Some(ConsoleDevice::new(rx, false));
+        console = Some(ConsoleDevice::new(rx));
         let tx_device = TxDevice::new(tx, special_chars::EOT);
         I8080::new(vec![], vec![tx_device])
     };
@@ -73,26 +74,27 @@ pub fn run_system(args: RunArgs) -> i32 {
             input: args.file.clone(),
             output: PathBuf::new(),
             load_at: load_address,
-            register_definitions: true,
+            no_register_definitions: args.no_register_definitions,
             hlt: true,
         });
         match assembler.assemble() {
             Ok(bytes) => bytes,
-            Err(_) => {
+            Err(e) => {
+                eprintln!("{}", e);
                 return E_ASSEMBLER;
             }
         }
     } else {
-        match fs::read(args.file.clone()) {
+        match fs::read(&args.file) {
             Ok(bytes) => bytes,
             Err(e) => {
-                println!("Failed to read file: {}\n\n{}", filename_plain, e);
+                eprintln!("Failed to read file: {}\n\n{}", filename_plain, e);
                 return E_IO_ERROR;
             }
         }
     };
 
-    i8080.load(load_address, program);
+    i8080.load(load_address, &program);
 
     let th_cons = console.map(|cons| thread::spawn(move || cons.run()));
 
@@ -104,8 +106,8 @@ pub fn run_system(args: RunArgs) -> i32 {
         i8080.run(args.emulate_clock_speed);
     }
 
-    if let Some(th) = th_cons {
-        th.join().unwrap();
+    if let Some(Err(e)) = th_cons.map(thread::JoinHandle::join) {
+        error!("console device thread panicked: {:?}", e);
     }
 
     E_SUCCESS
@@ -190,16 +192,16 @@ fn run_interactive(i8080: &mut I8080) {
                     println!("Interrupt takes one arg");
                     continue;
                 }
-                let inst = continue_on_err!(parse_number(args.get(0).unwrap())) as u8;
+                let inst = continue_on_err!(parse_number(args[0])) as u8;
                 i8080.issue_interrupt(inst);
-                println!("Interrupt issues, instruction {:#02x}", inst);
+                println!("Interrupt issued, instruction {:#04x}", inst);
             }
             "m" | "mem" | "memory" => {
                 if args.len() > 2 {
                     println!("Up to two args required: {:?}", args);
                     continue;
                 }
-                let len = continue_on_err!(parse_number(args.get(0).unwrap_or(&"1")));
+                let len = continue_on_err!(parse_number(args.first().unwrap_or(&"1")));
                 let addr = if let Some(arg) = args.get(1) {
                     continue_on_err!(parse_number(arg))
                 } else {
@@ -212,7 +214,7 @@ fn run_interactive(i8080: &mut I8080) {
                     println!("Zero or one args required: {:?}", args);
                     continue;
                 }
-                let addr = if let Some(arg) = args.get(0) {
+                let addr = if let Some(arg) = args.first() {
                     continue_on_err!(parse_number(arg))
                 } else {
                     i8080.get_pc()
@@ -247,19 +249,25 @@ fn prompt_cycle(i8080: &mut I8080) -> bool {
     }
 }
 
+/// Parse a `u16` with an optional `0x`, `0b`, or `0o` radix prefix
 fn parse_number(input: &str) -> Result<u16, ParseIntError> {
-    let mut s = input.to_string();
-    let radix = if s.starts_with("0x") {
-        16
-    } else if s.starts_with("0b") {
-        2
-    } else if s.starts_with("0o") {
-        8
-    } else {
-        10
-    };
-    if radix != 10 {
-        s = s[2..].to_string();
+    let (digits, radix) = [("0x", 16), ("0b", 2), ("0o", 8)]
+        .into_iter()
+        .find_map(|(prefix, radix)| input.strip_prefix(prefix).map(|digits| (digits, radix)))
+        .unwrap_or((input, 10));
+    u16::from_str_radix(digits, radix)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_number_radices() {
+        assert_eq!(parse_number("0x1f"), Ok(0x1f));
+        assert_eq!(parse_number("0b101"), Ok(0b101));
+        assert_eq!(parse_number("0o17"), Ok(0o17));
+        assert_eq!(parse_number("42"), Ok(42));
+        assert!(parse_number("0x").is_err());
     }
-    u16::from_str_radix(&s, radix)
 }

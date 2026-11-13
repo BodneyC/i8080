@@ -2,14 +2,14 @@
 //!
 //! # Examples
 //!
-//! Compile the ASM and include register to integer defs
-//!  
+//! Compile the ASM
+//!
 //! ```sh
-//! $ i8080 asm --register-definitions ./rsc/asm/hello-world.asm
+//! $ i8080 asm ./rsc/asm/hello-world.asm
 //! ```
 //!
 //! Run the resulting binary
-//!  
+//!
 //! ```sh
 //! $ i8080 run a.out
 //! hello world
@@ -22,8 +22,7 @@
 //! hello world
 //! ```
 //!
-//! If assembling and running in one, register definitions are included and a `HLT` instruction is
-//! placed at the end of the program.
+//! If assembling and running in one, a `HLT` instruction is placed at the end of the program.
 
 pub mod asm;
 pub mod cli;
@@ -38,7 +37,7 @@ extern crate log;
 
 use clap::Parser;
 
-use asm::{run_assembler, run_disassmbler};
+use asm::{run_assembler, run_disassembler};
 use cli::{Cli, Commands};
 use sys::run_system;
 
@@ -50,6 +49,6 @@ fn main() {
     std::process::exit(match args.command {
         Commands::Run(subargs) => run_system(subargs),
         Commands::Assemble(subargs) => run_assembler(subargs),
-        Commands::Disassemble(subargs) => run_disassmbler(subargs),
+        Commands::Disassemble(subargs) => run_disassembler(subargs),
     });
 }

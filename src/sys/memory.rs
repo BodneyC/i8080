@@ -14,63 +14,46 @@ impl Memory {
         }
     }
 
-    pub fn load(&mut self, addr: u16, prog: Vec<u8>) -> usize {
-        let offset: usize = addr as usize;
-        let mem_len: usize = self.mem.len();
-        if offset + prog.len() > self.mem.len() {
-            self.mem[offset..mem_len].copy_from_slice(&prog[..mem_len - offset]);
-            mem_len - offset
-        } else {
-            self.mem[offset..offset + prog.len()].copy_from_slice(&prog[..]);
-            prog.len()
-        }
+    /// Copy `prog` into memory at `addr`, truncating anything past the end of memory
+    ///
+    /// Returns the number of bytes loaded
+    pub fn load(&mut self, addr: u16, prog: &[u8]) -> usize {
+        let dest = self.mem.get_mut(usize::from(addr)..).unwrap_or_default();
+        let len = dest.len().min(prog.len());
+        dest[..len].copy_from_slice(&prog[..len]);
+        len
     }
 
     pub fn read_byte(&self, addr: u16) -> u8 {
-        match self.mem.get(addr as usize) {
-            Some(val) => *val,
-            None => 0xff, // This is hardware specific, but we'll roll with it
-        }
-    }
-
-    pub fn read_word_big_endian(&self, addr: u16) -> u16 {
-        (self.read_byte(addr) as u16) << 8 | self.read_byte(addr + 1) as u16
+        // Reading unmapped memory is hardware specific, but we'll roll with all ones
+        self.mem.get(usize::from(addr)).copied().unwrap_or(0xff)
     }
 
     pub fn read_word_little_endian(&self, addr: u16) -> u16 {
-        (self.read_byte(addr + 1) as u16) << 8 | self.read_byte(addr) as u16
+        u16::from_le_bytes([self.read_byte(addr), self.read_byte(addr.wrapping_add(1))])
     }
 
     pub fn write_byte(&mut self, addr: u16, val: u8) {
-        let idx: usize = addr as usize;
-        if idx <= self.mem.len() {
-            self.mem[idx] = val;
+        if let Some(byte) = self.mem.get_mut(usize::from(addr)) {
+            *byte = val;
         }
-    }
-
-    pub fn write_word_big_endian(&mut self, addr: u16, val: u16) {
-        self.write_byte(addr, (val >> 8) as u8);
-        self.write_byte(addr + 1, (val & 0xff) as u8);
     }
 
     pub fn write_word_little_endian(&mut self, addr: u16, val: u16) {
-        self.write_byte(addr + 1, (val >> 8) as u8);
-        self.write_byte(addr, val as u8);
+        let [lo, hi] = val.to_le_bytes();
+        self.write_byte(addr, lo);
+        self.write_byte(addr.wrapping_add(1), hi);
     }
 
     pub(crate) fn randomize(&mut self) {
-        for byte in self.mem.iter_mut() {
-            *byte = rand::thread_rng().gen();
-        }
+        rand::thread_rng().fill(&mut self.mem[..]);
     }
 
+    /// Up to `len` bytes from `addr`, stopping at the end of memory
     pub(crate) fn get_slice(&self, addr: u16, len: u16) -> Vec<u8> {
-        let slice = if addr.wrapping_add(len) < addr {
-            &self.mem[addr as usize..]
-        } else {
-            &self.mem[addr as usize..(addr + len) as usize]
-        };
-        slice.to_vec()
+        let start = usize::from(addr).min(self.mem.len());
+        let end = (start + usize::from(len)).min(self.mem.len());
+        self.mem[start..end].to_vec()
     }
 }
 
@@ -81,7 +64,7 @@ mod tests {
     #[test]
     fn load_full() {
         let mut mem: Memory = Memory { mem: vec![0; 10] };
-        mem.load(0, (0..10).collect());
+        mem.load(0, &(0..10).collect::<Vec<u8>>());
         for i in 0..10 {
             assert_eq!(mem.read_byte(i), i as u8);
         }
@@ -91,7 +74,7 @@ mod tests {
     #[test]
     fn load_partial() {
         let mut mem: Memory = Memory { mem: vec![0; 10] };
-        mem.load(0, (0..5).collect());
+        mem.load(0, &(0..5).collect::<Vec<u8>>());
         for i in 0..5 {
             assert_eq!(mem.read_byte(i), i as u8);
         }
@@ -104,7 +87,7 @@ mod tests {
     #[test]
     fn load_offset() {
         let mut mem: Memory = Memory { mem: vec![0; 10] };
-        mem.load(3, (0..5).collect());
+        mem.load(3, &(0..5).collect::<Vec<u8>>());
         for i in 0..3 {
             assert_eq!(mem.read_byte(i), 0);
         }
@@ -120,7 +103,7 @@ mod tests {
     #[test]
     fn load_offset_overlapping() {
         let mut mem: Memory = Memory { mem: vec![0; 10] };
-        mem.load(6, (0..5).collect());
+        mem.load(6, &(0..5).collect::<Vec<u8>>());
         for i in 0..6 {
             assert_eq!(mem.read_byte(i), 0);
         }
@@ -128,5 +111,23 @@ mod tests {
             assert_eq!(mem.read_byte(i), (i - 6) as u8);
         }
         assert_eq!(mem.read_byte(10), 0xff);
+    }
+
+    #[test]
+    fn past_end_of_memory() {
+        let mut mem: Memory = Memory { mem: vec![0; 10] };
+        assert_eq!(mem.load(20, &[1, 2, 3]), 0);
+        mem.write_byte(10, 1);
+        assert_eq!(mem.get_slice(8, 5), vec![0, 0]);
+        assert_eq!(mem.get_slice(20, 5), Vec::<u8>::new());
+    }
+
+    #[test]
+    fn words_wrap_address_space() {
+        let mut mem = Memory::new();
+        mem.write_word_little_endian(0xffff, 0xbeef);
+        assert_eq!(mem.read_byte(0xffff), 0xef);
+        assert_eq!(mem.read_byte(0x0000), 0xbe);
+        assert_eq!(mem.read_word_little_endian(0xffff), 0xbeef);
     }
 }

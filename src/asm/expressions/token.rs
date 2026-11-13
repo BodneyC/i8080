@@ -1,6 +1,14 @@
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Assoc {
+    Left,
+    #[allow(dead_code)] // No right-associative operators exist yet
+    Right,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Token {
-    Operator(char, u32, u32), // Operator, associativity, precedence
+    /// Operator, associativity, precedence
+    Operator(char, Assoc, u32),
     String(String),
     Number(u16),
     MetaIdentifier(String),
@@ -8,6 +16,3 @@ pub enum Token {
     RParen,
     Unary(String),
 }
-
-pub const LEFT_ASSOC: u32 = 1;
-pub const RIGHT_ASSOC: u32 = 2;

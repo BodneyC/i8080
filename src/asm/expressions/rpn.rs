@@ -3,61 +3,53 @@ use super::{errors::ExpressionError, token::Token};
 pub fn calculate(input_queue: &[Token]) -> Result<u16, ExpressionError> {
     trace!("rpn input queue: {:?}", input_queue);
 
-    let mut stack = Vec::new();
+    let mut stack: Vec<u16> = Vec::new();
 
-    for tok in input_queue.iter() {
+    for tok in input_queue {
         match tok {
-            Token::Number(n) => stack.push(Token::Number(*n)),
+            Token::Number(n) => stack.push(*n),
             Token::Operator(o, _, _) => {
-                let right = stack.pop();
-                let left = stack.pop();
-                match (left, right) {
-                    (Some(Token::Number(n1)), Some(Token::Number(n2))) => {
-                        stack.push(Token::Number(operate(*o, n1, n2)))
-                    }
-                    _ => break,
+                let (Some(right), Some(left)) = (stack.pop(), stack.pop()) else {
+                    return Err(ExpressionError::MissingOperand(*o));
+                };
+                stack.push(operate(*o, left, right)?);
+            }
+            Token::Unary(unary) => {
+                let arg = stack.pop().ok_or_else(|| {
+                    ExpressionError::CalculationError(format!("no argument for {}", unary))
+                })?;
+                match unary.as_str() {
+                    "NOT" => stack.push(!arg),
+                    "NEG" => stack.push(arg.wrapping_neg()),
+                    _ => return Err(ExpressionError::UnknownUnary(unary.to_string())),
                 }
             }
-            Token::Unary(unary) => match unary.as_str() {
-                "NOT" => {
-                    let arg = stack.pop();
-
-                    if let Some(Token::Number(n)) = arg {
-                        stack.push(Token::Number(!n));
-                    }
-                }
-                "NEG" => {
-                    let arg = stack.pop();
-
-                    if let Some(Token::Number(n)) = arg {
-                        stack.push(Token::Number(0_u16.wrapping_sub(n)));
-                    }
-                }
-                _ => return Err(ExpressionError::UnknownUnary(unary.to_string())),
-            },
-            _ => (),
+            tok => return Err(ExpressionError::NotANumber(tok.clone())),
         }
     }
 
     match stack.pop() {
-        Some(Token::Number(n)) => {
+        Some(n) => {
             trace!("rpn result: {:#04x}", n);
             Ok(n)
         }
-        Some(tok) => Err(ExpressionError::NotANumber(tok)),
-        None => Err(ExpressionError::CalculationError("unknown".to_string())),
+        None => Err(ExpressionError::CalculationError(
+            "empty expression".to_string(),
+        )),
     }
 }
 
-fn operate(operator: char, left: u16, right: u16) -> u16 {
-    match operator {
+fn operate(operator: char, left: u16, right: u16) -> Result<u16, ExpressionError> {
+    Ok(match operator {
         '+' => left.wrapping_add(right),
         '-' => left.wrapping_sub(right),
         '*' => left.wrapping_mul(right),
-        '/' => left.wrapping_div(right),
+        '/' => left
+            .checked_div(right)
+            .ok_or(ExpressionError::DivisionByZero)?,
         '&' => left & right,
         '^' => left ^ right,
         '|' => left | right,
-        _ => 0,
-    }
+        _ => return Err(ExpressionError::UnprocessableChar(operator)),
+    })
 }

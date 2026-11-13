@@ -3,16 +3,15 @@
 //! The console device takes a receiver and ideally the emulator receives the counterpart
 //! transmitter.
 //!
-//! Operation of the device is done through special characters. For example, the text passed to 
+//! Operation of the device is done through special characters. For example, the text passed to
 //! it is buffered, the null or ETB characters are used to "flush" the buffer and print the
 //! contents to the screen.
 //!
-//! Similarly end-of-tranmission (EOT) is used to close operation of the device
+//! Similarly end-of-transmission (EOT) is used to close operation of the device
 
 use std::sync::mpsc::Receiver;
 
-// I don't know another way to namespace some consts... maybe bad practice but who can really tell
-// these days
+/// ASCII control characters understood by the device
 pub mod special_chars {
     pub const NUL: u8 = 0x00;
     pub const EOT: u8 = 0x04;
@@ -25,71 +24,51 @@ pub mod special_chars {
 
 pub struct ConsoleDevice {
     rx: Receiver<u8>,
-    echo: bool,
 }
 
 impl ConsoleDevice {
-    pub fn new(rx: Receiver<u8>, echo: bool) -> Self {
-        Self { rx, echo }
+    pub fn new(rx: Receiver<u8>) -> Self {
+        Self { rx }
     }
 
+    /// Process received bytes until EOT, or the transmitter is dropped
+    ///
+    /// Returns any unflushed contents of the buffer
     pub fn run(&self) -> Vec<u8> {
-        match self.echo {
-            true => self.run_echo(),
-            false => self.run_no_echo(),
-        }
-    }
-
-    fn run_echo(&self) -> Vec<u8> {
-        unimplemented!();
-    }
-
-    fn run_no_echo(&self) -> Vec<u8> {
         let mut buf: Vec<u8> = vec![];
         let mut idx: usize = 0;
-        loop {
-            if let Ok(byte) = self.rx.recv() {
-                debug!("Console device received [{}]", byte);
-                match byte {
-                    // EOT, end of tranmission
-                    special_chars::EOT => break,
-                    // ETB, end of tranmission block (using as flush)
-                    // NUL, null terminator for string (using as flush)
-                    special_chars::ETB | special_chars::NUL => {
-                        println!("{}", String::from_utf8_lossy(&buf));
-                        buf.clear();
-                        idx = 0;
+        for byte in self.rx.iter() {
+            debug!("Console device received [{}]", byte);
+            match byte {
+                special_chars::EOT => break,
+                // End of transmission block and null terminator, flush the buffer
+                special_chars::ETB | special_chars::NUL => {
+                    println!("{}", String::from_utf8_lossy(&buf));
+                    buf.clear();
+                    idx = 0;
+                }
+                // Device should immediately acknowledge
+                special_chars::BEL => println!(":BEL:"),
+                special_chars::BS => {
+                    if idx > 0 {
+                        idx -= 1;
+                        buf.remove(idx);
                     }
-                    // BEL, device should immediately acknowledge
-                    special_chars::BEL => println!(":BEL:"),
-                    // BS, backspace
-                    special_chars::BS => {
-                        if idx > 0 {
-                            idx -= 1;
-                            buf.remove(idx);
-                        }
+                }
+                // Carriage return, overwrite from the start of the current line
+                special_chars::CR => {
+                    idx = buf[..idx]
+                        .iter()
+                        .rposition(|b| *b == special_chars::LF)
+                        .map_or(0, |lf| lf + 1);
+                }
+                _ => {
+                    if idx == buf.len() {
+                        buf.push(byte);
+                    } else {
+                        buf[idx] = byte;
                     }
-                    // CR, overwrite from previous
-                    special_chars::CR => {
-                        if let Some(rev_last_lf) = buf[0..idx]
-                            .iter()
-                            .rev()
-                            .position(|b| *b == special_chars::LF)
-                        {
-                            idx = buf.len() - rev_last_lf;
-                        } else {
-                            idx = 0;
-                        }
-                    }
-                    // Printables
-                    _ => {
-                        if idx == buf.len() {
-                            buf.push(byte);
-                        } else {
-                            buf[idx] = byte;
-                        }
-                        idx += 1;
-                    }
+                    idx += 1;
                 }
             }
         }
@@ -99,104 +78,48 @@ impl ConsoleDevice {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::mpsc::{self, SendError, Sender};
+    use std::sync::mpsc;
 
     use super::*;
 
+    fn run_console(input: &[u8]) -> String {
+        let (tx, rx) = mpsc::channel();
+        for byte in input.iter().chain(&[special_chars::EOT]) {
+            tx.send(*byte).expect("receiver should be alive");
+        }
+        String::from_utf8_lossy(&ConsoleDevice::new(rx).run()).into_owned()
+    }
+
     #[test]
     fn simple_string() {
-        let (tx, rx): (Sender<u8>, Receiver<u8>) = mpsc::channel();
-
-        let act = "Hello".to_owned();
-
-        let mut vec = act.as_bytes().to_vec();
-        vec.push(special_chars::EOT);
-
-        let mut err: Option<SendError<u8>> = None;
-        for byte in vec.iter() {
-            if let Err(e) = tx.send(*byte) {
-                err = Some(e);
-                break;
-            }
-        }
-
-        assert!(err.is_none(), "{:?}", err.unwrap());
-
-        let console = ConsoleDevice { rx, echo: false };
-
-        assert_eq!(act, String::from_utf8_lossy(&(console.run())));
+        assert_eq!(run_console(b"Hello"), "Hello");
     }
 
     #[test]
     fn newline_string() {
-        let (tx, rx): (Sender<u8>, Receiver<u8>) = mpsc::channel();
-
-        let act = "Hello\nthere".to_owned();
-
-        let mut vec = act.as_bytes().to_vec();
-        vec.push(special_chars::EOT);
-
-        let mut err: Option<SendError<u8>> = None;
-        for byte in vec.iter() {
-            if let Err(e) = tx.send(*byte) {
-                err = Some(e);
-                break;
-            }
-        }
-
-        assert!(err.is_none(), "{:?}", err.unwrap());
-
-        let console = ConsoleDevice { rx, echo: false };
-
-        assert_eq!(act, String::from_utf8_lossy(&(console.run())));
+        assert_eq!(run_console(b"Hello\nthere"), "Hello\nthere");
     }
 
     #[test]
     fn newline_with_cr() {
-        let (tx, rx): (Sender<u8>, Receiver<u8>) = mpsc::channel();
+        assert_eq!(run_console(b"Hello\nthe\rre"), "Hello\nree");
+    }
 
-        let act = "Hello\nthe\rre".to_owned();
-        let exp = "Hello\nree";
-
-        let mut vec = act.as_bytes().to_vec();
-        vec.push(special_chars::EOT);
-
-        let mut err: Option<SendError<u8>> = None;
-        for byte in vec.iter() {
-            if let Err(e) = tx.send(*byte) {
-                err = Some(e);
-                break;
-            }
-        }
-
-        assert!(err.is_none(), "{:?}", err.unwrap());
-
-        let console = ConsoleDevice { rx, echo: false };
-
-        assert_eq!(exp, String::from_utf8_lossy(&(console.run())));
+    #[test]
+    fn repeated_cr() {
+        assert_eq!(run_console(b"ab\ncd\r\rX"), "ab\nXd");
     }
 
     #[test]
     fn backspace() {
-        let (tx, rx): (Sender<u8>, Receiver<u8>) = mpsc::channel();
+        assert_eq!(run_console(b"Hello\x08scape"), "Hellscape");
+    }
 
-        let mut vec = "Hello".as_bytes().to_vec();
-        vec.push(0x08);
-        vec.append(&mut "scape".as_bytes().to_vec());
-        vec.push(special_chars::EOT);
-
-        let mut err: Option<SendError<u8>> = None;
-        for byte in vec.iter() {
-            if let Err(e) = tx.send(*byte) {
-                err = Some(e);
-                break;
-            }
-        }
-
-        assert!(err.is_none(), "{:?}", err.unwrap());
-
-        let console = ConsoleDevice { rx, echo: false };
-
-        assert_eq!("Hellscape", String::from_utf8_lossy(&(console.run())));
+    #[test]
+    fn dropped_transmitter_stops_device() {
+        let (tx, rx) = mpsc::channel();
+        tx.send(b'a').unwrap();
+        drop(tx);
+        assert_eq!(ConsoleDevice::new(rx).run(), b"a");
     }
 }

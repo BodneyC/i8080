@@ -2,7 +2,7 @@
 //!
 //! This is a Shunting-yard algorithm loosely based on <https://github.com/simon-whitehead/rust-yard>
 //!
-//! Several modifications have been made to make is suitable for the 8080:
+//! Several modifications have been made to make it suitable for the 8080:
 //!
 //! Labels from the assembler are passed into to be resolved within the expressions
 //!
@@ -37,21 +37,20 @@
 //!
 //! ## Examples
 //!
-//! ```
+//! ```asm
 //! -2    ; becomes
 //! NEG 2
 //! ```
 //!
-//! ```
+//! ```asm
 //! 254 + 12    ; becomes
 //! 0xfe + 0o14
 //! ```
 //!
-//! ```
+//! ```asm
 //! 12 ^ (- (5 & 3))     ; becomes
 //! 12 XOR NEG (5 AND 3)
 //! ```
-
 
 pub mod errors;
 pub mod parser;

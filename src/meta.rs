@@ -4,18 +4,24 @@
 //! project, most relevantly the op-code, the arguments they receive in the ASM, and the arguments
 //! they receive in the byte code.
 //!
-//! An example of the ASM to byte-code argument count discrepency would be `MOV B, B` which takes
-//! two ASM instructions but is an argument-less op-code in the byte-code (0x40).
+//! An example of the ASM to byte-code argument count discrepancy would be `MOV B, B` which takes
+//! two ASM arguments but is an argument-less op-code in the byte-code (0x40).
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
 pub struct OpMeta {
+    /// Mnemonic, including any register encoded in the op-code (e.g. `MOV B, C`)
     pub op: &'static str,
+    /// Number of comma-separated arguments in the assembly
     pub asm_arg_count: usize,
+    /// Followed by a one-byte immediate
     pub argb: bool,
+    /// Followed by a two-byte immediate
     pub argw: bool,
+    /// Variadic storage definition (`DB`, `DW`, `DS`)
     pub define: bool,
+    /// Requires a label (`EQU`, `SET`, `MACRO`)
     pub labelled: bool,
-    // The cycle counts used are from https://github.com/superzazu/8080/blob/master/i8080.c#L7
+    /// Cycles taken, from <https://github.com/superzazu/8080/blob/master/i8080.c#L7>
     pub cycles: u8,
 }
 
@@ -80,6 +86,7 @@ impl OpMeta {
         }
     }
 
+    /// Width in bytes of the instruction and its immediate
     pub fn width(&self) -> usize {
         if self.argw {
             3
@@ -91,6 +98,7 @@ impl OpMeta {
     }
 }
 
+/// Indexed by op-code, entries `0x100` onward are assembler meta-instructions
 pub const I8080_OP_META: [OpMeta; 0x10b] = load_op_meta();
 
 const fn load_op_meta() -> [OpMeta; 0x10b] {
@@ -197,16 +205,16 @@ const fn load_op_meta() -> [OpMeta; 0x10b] {
     set[0xfc] = OpMeta::new_argw("CM", 1, 11);
 
     // Rxx
-    set[0xc9] = OpMeta::new_no_args("RET", 1, 10);
+    set[0xc9] = OpMeta::new_no_args("RET", 0, 10);
     // If the condition is matched, 6 cycles are added
-    set[0xc0] = OpMeta::new_no_args("RNZ", 1, 5);
-    set[0xc8] = OpMeta::new_no_args("RZ", 1, 5);
-    set[0xd0] = OpMeta::new_no_args("RNC", 1, 5);
-    set[0xd8] = OpMeta::new_no_args("RC", 1, 5);
-    set[0xe0] = OpMeta::new_no_args("RPO", 1, 5);
-    set[0xe8] = OpMeta::new_no_args("RPE", 1, 5);
-    set[0xf0] = OpMeta::new_no_args("RP", 1, 5);
-    set[0xf8] = OpMeta::new_no_args("RM", 1, 5);
+    set[0xc0] = OpMeta::new_no_args("RNZ", 0, 5);
+    set[0xc8] = OpMeta::new_no_args("RZ", 0, 5);
+    set[0xd0] = OpMeta::new_no_args("RNC", 0, 5);
+    set[0xd8] = OpMeta::new_no_args("RC", 0, 5);
+    set[0xe0] = OpMeta::new_no_args("RPO", 0, 5);
+    set[0xe8] = OpMeta::new_no_args("RPE", 0, 5);
+    set[0xf0] = OpMeta::new_no_args("RP", 0, 5);
+    set[0xf8] = OpMeta::new_no_args("RM", 0, 5);
 
     // ------------------------------------------ IMMEDIATE
 
@@ -334,36 +342,36 @@ const fn load_op_meta() -> [OpMeta; 0x10b] {
 
     // ------------------------------------------ LXI
 
-    set[0x01] = OpMeta::new_argw("LXI B", 2, 4);
-    set[0x11] = OpMeta::new_argw("LXI D", 2, 4);
-    set[0x21] = OpMeta::new_argw("LXI H", 2, 4);
-    set[0x31] = OpMeta::new_argw("LXI SP", 2, 4);
+    set[0x01] = OpMeta::new_argw("LXI B", 2, 10);
+    set[0x11] = OpMeta::new_argw("LXI D", 2, 10);
+    set[0x21] = OpMeta::new_argw("LXI H", 2, 10);
+    set[0x31] = OpMeta::new_argw("LXI SP", 2, 10);
 
     // ------------------------------------------ LOAD/STORE
 
     set[0x0a] = OpMeta::new_no_args("LDAX B", 1, 7);
     set[0x1a] = OpMeta::new_no_args("LDAX D", 1, 7);
-    set[0x2a] = OpMeta::new_argw("LHDL", 1, 16);
+    set[0x2a] = OpMeta::new_argw("LHLD", 1, 16);
     set[0x3a] = OpMeta::new_argw("LDA", 1, 13);
 
     set[0x02] = OpMeta::new_no_args("STAX B", 1, 7);
     set[0x12] = OpMeta::new_no_args("STAX D", 1, 7);
-    set[0x22] = OpMeta::new_argw("SHDL", 1, 16);
+    set[0x22] = OpMeta::new_argw("SHLD", 1, 16);
     set[0x32] = OpMeta::new_argw("STA", 1, 13);
 
     // ------------------------------------------ ROTATE
 
-    set[0x07] = OpMeta::new_no_args("RLD", 0, 4);
+    set[0x07] = OpMeta::new_no_args("RLC", 0, 4);
     set[0x0f] = OpMeta::new_no_args("RRC", 0, 4);
     set[0x17] = OpMeta::new_no_args("RAL", 0, 4);
     set[0x1f] = OpMeta::new_no_args("RAR", 0, 4);
 
     // ------------------------------------------ DAD
 
-    set[0x09] = OpMeta::new_argb("DAD B", 2, 10);
-    set[0x19] = OpMeta::new_argb("DAD D", 2, 10);
-    set[0x29] = OpMeta::new_argb("DAD H", 2, 10);
-    set[0x39] = OpMeta::new_argb("DAD SP", 2, 10);
+    set[0x09] = OpMeta::new_no_args("DAD B", 1, 10);
+    set[0x19] = OpMeta::new_no_args("DAD D", 1, 10);
+    set[0x29] = OpMeta::new_no_args("DAD H", 1, 10);
+    set[0x39] = OpMeta::new_no_args("DAD SP", 1, 10);
 
     // ------------------------------------------ INC
 
@@ -443,7 +451,7 @@ const fn load_op_meta() -> [OpMeta; 0x10b] {
     set[0x107] = OpMeta::new_argb("IF", 1, 0);
     set[0x108] = OpMeta::new_no_args("ENDIF", 0, 0);
     set[0x109] = OpMeta::new_labelled("MACRO", 0);
-    set[0x10a] = OpMeta::new_labelled("ENDM", 0);
+    set[0x10a] = OpMeta::new_no_args("ENDM", 0, 0);
 
     set
 }

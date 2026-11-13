@@ -18,8 +18,8 @@ impl I8080 {
             // ------------------------------------------ CONTROL
             0x00 => {} // NOP
             0x76 => self.halt(),
-            0xf3 => self.interrupt_flip_flop = true,  // DI
-            0xfb => self.interrupt_flip_flop = false, // EI
+            0xf3 => self.interrupts_enabled = false, // DI
+            0xfb => self.interrupts_enabled = true,  // EI
 
             // ------------------------------------------ LXI
             0x01 => self.registers.set_bc(self.pc_argw()),
@@ -44,7 +44,7 @@ impl I8080 {
                 .write_byte(self.registers.get_de(), self.registers.a), // STAX D
             0x22 => self
                 .memory
-                .write_word_big_endian(self.pc_argw(), self.registers.get_hl()), // SHLD
+                .write_word_little_endian(self.pc_argw(), self.registers.get_hl()), // SHLD
             0x32 => self.memory.write_byte(self.pc_argw(), self.registers.a), // STA
 
             // ------------------------------------------ ROTATE
@@ -85,7 +85,7 @@ impl I8080 {
             0x23 => self
                 .registers
                 .set_hl(self.registers.get_hl().wrapping_add(1)),
-            0x33 => self.registers.pc = self.registers.pc.wrapping_add(1),
+            0x33 => self.registers.sp = self.registers.sp.wrapping_add(1),
 
             // ------------------------------------------ DEC
 
@@ -101,7 +101,7 @@ impl I8080 {
                 let decremented: u8 = self.dcr(self.memory.read_byte(hl));
                 self.memory.write_byte(hl, decremented);
             }
-            0x3d => self.registers.a = self.inr(self.registers.a),
+            0x3d => self.registers.a = self.dcr(self.registers.a),
 
             // DCX
             0x0b => self
@@ -113,7 +113,7 @@ impl I8080 {
             0x2b => self
                 .registers
                 .set_hl(self.registers.get_hl().wrapping_sub(1)),
-            0x3b => self.registers.pc -= 1,
+            0x3b => self.registers.sp = self.registers.sp.wrapping_sub(1),
 
             // ------------------------------------------ MOV
 
@@ -130,7 +130,7 @@ impl I8080 {
             0x3e => self.registers.a = self.pc_argb(),
 
             // MOV B, x
-            0x40 => {},
+            0x40 => {}
             0x41 => self.registers.b = self.registers.c,
             0x42 => self.registers.b = self.registers.d,
             0x43 => self.registers.b = self.registers.e,
@@ -141,7 +141,7 @@ impl I8080 {
 
             // MOV C, x
             0x48 => self.registers.c = self.registers.b,
-            0x49 => {},
+            0x49 => {}
             0x4a => self.registers.c = self.registers.d,
             0x4b => self.registers.c = self.registers.e,
             0x4c => self.registers.c = self.registers.h,
@@ -152,7 +152,7 @@ impl I8080 {
             // MOV D, x
             0x50 => self.registers.d = self.registers.b,
             0x51 => self.registers.d = self.registers.c,
-            0x52 => {},
+            0x52 => {}
             0x53 => self.registers.d = self.registers.e,
             0x54 => self.registers.d = self.registers.h,
             0x55 => self.registers.d = self.registers.l,
@@ -163,7 +163,7 @@ impl I8080 {
             0x58 => self.registers.e = self.registers.b,
             0x59 => self.registers.e = self.registers.c,
             0x5a => self.registers.e = self.registers.d,
-            0x5b => {},
+            0x5b => {}
             0x5c => self.registers.e = self.registers.h,
             0x5d => self.registers.e = self.registers.l,
             0x5e => self.registers.e = self.memory.read_byte(self.registers.get_hl()),
@@ -174,7 +174,7 @@ impl I8080 {
             0x61 => self.registers.h = self.registers.c,
             0x62 => self.registers.h = self.registers.d,
             0x63 => self.registers.h = self.registers.e,
-            0x64 => {},
+            0x64 => {}
             0x65 => self.registers.h = self.registers.l,
             0x66 => self.registers.h = self.memory.read_byte(self.registers.get_hl()),
             0x67 => self.registers.h = self.registers.a,
@@ -185,7 +185,7 @@ impl I8080 {
             0x6a => self.registers.l = self.registers.d,
             0x6b => self.registers.l = self.registers.e,
             0x6c => self.registers.l = self.registers.h,
-            0x6d => {},
+            0x6d => {}
             0x6e => self.registers.l = self.memory.read_byte(self.registers.get_hl()),
             0x6f => self.registers.l = self.registers.a,
 
@@ -221,7 +221,7 @@ impl I8080 {
             0x7c => self.registers.a = self.registers.h,
             0x7d => self.registers.a = self.registers.l,
             0x7e => self.registers.a = self.memory.read_byte(self.registers.get_hl()),
-            0x7f => {},
+            0x7f => {}
 
             // Jxx
             0xc3 => self.jmp(self.pc_argw(), true), // JMP
@@ -404,12 +404,13 @@ impl I8080 {
     ///
     /// - val: Value to pass to the out-device
     pub fn dev_out(&self, device: usize, val: u8) {
-        if self.tx_devices.len() > device {
-            if let Err(err) = self.tx_devices[device].tx.send(val) {
-                debug!("error transmitting {} OUT: {:?}", val, err);
+        match self.tx_devices.get(device) {
+            Some(dev) => {
+                if let Err(err) = dev.tx.send(val) {
+                    debug!("error transmitting {} OUT: {:?}", val, err);
+                }
             }
-        } else {
-            debug!("no device OUT");
+            None => debug!("no device OUT"),
         }
     }
 
@@ -417,14 +418,10 @@ impl I8080 {
     ///
     /// If no such in-device exists, will read all ones, i.e. 0xff
     fn dev_in(&self, device: usize) -> u8 {
-        if self.rx_devices.len() > device {
-            if let Ok(val) = self.rx_devices[device].rx.try_recv() {
-                return val;
-            } else {
-                debug!("nothing received IN");
-            }
-        } else {
-            debug!("no device IN");
+        match self.rx_devices.get(device).map(|dev| dev.rx.try_recv()) {
+            Some(Ok(val)) => return val,
+            Some(Err(_)) => debug!("nothing received IN"),
+            None => debug!("no device IN"),
         }
         0xff
     }
@@ -522,7 +519,7 @@ impl I8080 {
         self.flags.zero_sign_parity(self.registers.a);
     }
 
-    /// Comapres a value against the A register
+    /// Compares a value against the A register
     ///
     /// A CMP instruction is essentially a [SUB A, x] but the result is
     /// temporary and discarded. Here, for ease, I am replacing A in
@@ -546,7 +543,7 @@ impl I8080 {
     /// - val: Value to increment
     fn inr(&mut self, val: u8) -> u8 {
         let result = val.wrapping_add(1);
-        self.flags.aux_carry = (result & 0xf).wrapping_add(1) > 0xf;
+        self.flags.aux_carry = (result & 0xf) == 0;
         self.flags.zero_sign_parity(result);
         result
     }
@@ -577,30 +574,16 @@ impl I8080 {
         }
     }
 
-    /// Push a value onto the stack
-    ///
-    /// The order of the bytes *should* be swapped for a true i8080
-    /// implementation. However, for ease, I am not doing this.
-    ///
-    /// # Arguments
-    ///
-    /// - val: Value to push onto the stack
+    /// Push a value onto the stack, stored little endian as on a real 8080
     fn push(&mut self, val: u16) {
         self.registers.sp = self.registers.sp.wrapping_sub(2);
-        self.memory.write_word_big_endian(self.registers.sp, val);
+        self.memory.write_word_little_endian(self.registers.sp, val);
     }
 
     /// Pop a value from the stack
-    ///
-    /// The order of the bytes *should* be swapped for a true i8080
-    /// implementation. However, for ease, I am not doing this.
-    ///
-    /// # Arguments
-    ///
-    /// - val: Value to push onto the stack
     fn pop(&mut self) -> u16 {
-        let result = self.memory.read_word_big_endian(self.registers.sp);
-        self.registers.sp += 2;
+        let result = self.memory.read_word_little_endian(self.registers.sp);
+        self.registers.sp = self.registers.sp.wrapping_add(2);
         result
     }
 
@@ -612,13 +595,13 @@ impl I8080 {
         self.push(val);
     }
 
-    /// Push A and the flags register to the stack
+    /// Pop A and the flags register from the stack
     ///
-    /// [A, Flags] -> stack
+    /// stack -> [A, Flags]
     fn pop_psw(&mut self) {
         let val: u16 = self.pop();
         self.registers.a = (val >> 8) as u8;
-        self.flags.from_byte(val as u8);
+        self.flags.set_from_byte(val as u8);
     }
 
     /// Exchange the value pointed to by the stack pointer with the value of
@@ -637,29 +620,29 @@ impl I8080 {
         self.registers.set_de(hl);
     }
 
-    fn call(&mut self, addr: u16, condition: Option<bool>) {
-        let mut cond = true;
-        if let Some(inner_cond) = condition {
-            if inner_cond {
-                self.cycles += 6;
+    /// Whether a conditional call/return is taken, adding the extra cycles taken branches cost
+    fn branch_taken(&mut self, condition: Option<bool>) -> bool {
+        match condition {
+            None => true,
+            Some(taken) => {
+                if taken {
+                    self.cycles += 6;
+                }
+                taken
             }
-            cond = inner_cond;
         }
-        if cond {
+    }
+
+    /// Push the return address (PC, already advanced) and jump to `addr`
+    fn call(&mut self, addr: u16, condition: Option<bool>) {
+        if self.branch_taken(condition) {
             self.push(self.registers.pc);
-            self.jmp(addr, true);
+            self.registers.pc = addr;
         }
     }
 
     fn ret(&mut self, condition: Option<bool>) {
-        let mut cond = true;
-        if let Some(inner_cond) = condition {
-            if inner_cond {
-                self.cycles += 6;
-            }
-            cond = inner_cond;
-        }
-        if cond {
+        if self.branch_taken(condition) {
             self.registers.pc = self.pop();
         }
     }
@@ -736,7 +719,7 @@ mod tests {
         let mut i8080 = I8080::new(vec![], vec![]);
         i8080.load(
             0x00,
-            vec![
+            &[
                 0x31, 0xff, 0xff, // LXI SP u16::MAX
                 0x01, 0xad, 0xde, // LXI B 0xdead
                 0xc5, // PUSH B
@@ -749,12 +732,96 @@ mod tests {
         i8080.cycle(); // PUSH B
         assert_eq!(i8080.registers.sp, 0xfffd, "SP is initial value - 2");
         assert_eq!(
-            i8080.memory.read_word_big_endian(i8080.registers.sp),
+            i8080.memory.read_word_little_endian(i8080.registers.sp),
             0xdead,
-            "[SP] is 0xdead (big endian)"
+            "[SP] is 0xdead (little endian)"
         );
         i8080.cycle(); // POP D
         assert_eq!(i8080.registers.sp, 0xffff, "SP is initial value");
         assert_eq!(i8080.registers.get_de(), 0xdead, "DE is 0xdead");
+    }
+
+    fn run_program(program: Vec<u8>) -> I8080 {
+        let mut i8080 = I8080::new(vec![], vec![]);
+        i8080.load(0x00, &program);
+        for _ in 0..1000 {
+            if i8080.halted {
+                return i8080;
+            }
+            i8080.cycle();
+        }
+        panic!("program did not halt");
+    }
+
+    #[test]
+    fn call_returns_to_next_instruction() {
+        let i8080 = run_program(vec![
+            0x31, 0x00, 0x20, // LXI SP, 0x2000
+            0xcd, 0x08, 0x00, // CALL 0x0008
+            0x3c, // INR A
+            0x76, // HLT
+            0x06, 0x05, // 0x0008: MVI B, 5
+            0xc9, // RET
+        ]);
+        assert_eq!(i8080.registers.b, 5);
+        assert_eq!(i8080.registers.a, 1, "execution continued after CALL");
+        assert_eq!(i8080.registers.sp, 0x2000);
+    }
+
+    #[test]
+    fn executes_beyond_first_page() {
+        let mut program = vec![0xc3, 0x00, 0x02]; // JMP 0x0200
+        program.resize(0x200, 0x00);
+        program.extend([0x3e, 0x42, 0x76]); // MVI A, 0x42; HLT
+        let i8080 = run_program(program);
+        assert_eq!(i8080.registers.a, 0x42);
+    }
+
+    #[test]
+    fn shld_lhld_round_trip() {
+        let i8080 = run_program(vec![
+            0x21, 0x34, 0x12, // LXI H, 0x1234
+            0x22, 0x00, 0x10, // SHLD 0x1000
+            0x21, 0x00, 0x00, // LXI H, 0
+            0x2a, 0x00, 0x10, // LHLD 0x1000
+            0x76,
+        ]);
+        assert_eq!(i8080.registers.get_hl(), 0x1234);
+        assert_eq!(i8080.memory.read_byte(0x1000), 0x34, "L stored first");
+    }
+
+    #[test]
+    fn sp_register_ops_and_dcr_a() {
+        let i8080 = run_program(vec![
+            0x31, 0x00, 0x10, // LXI SP, 0x1000
+            0x33, 0x33, 0x3b, // INX SP; INX SP; DCX SP
+            0x3e, 0x05, 0x3d, // MVI A, 5; DCR A
+            0x76,
+        ]);
+        assert_eq!(i8080.registers.sp, 0x1001);
+        assert_eq!(i8080.registers.a, 4);
+    }
+
+    #[test]
+    fn interrupts_only_fire_when_enabled() {
+        let mut i8080 = I8080::new(vec![], vec![]);
+        i8080.load(0x00, &[0x00, 0xfb, 0x00, 0x00]); // NOP; EI; NOP
+        i8080.registers.sp = 0x1000;
+        i8080.issue_interrupt(0xcf); // RST 1
+        i8080.cycle();
+        assert_eq!(i8080.registers.pc, 0x01, "interrupts start disabled");
+        i8080.cycle();
+        i8080.cycle();
+        assert_eq!(i8080.registers.pc, 0x08, "RST 1 taken once enabled");
+        assert_eq!(i8080.pop(), 0x02, "returns to the interrupted instruction");
+    }
+
+    #[test]
+    fn inr_aux_carry() {
+        let mut i8080 = I8080::new(vec![], vec![]);
+        assert_eq!(i8080.inr(0x0f), 0x10);
+        assert!(i8080.flags.aux_carry);
+        i8080.inr(0x10);
+        assert!(!i8080.flags.aux_carry);
     }
 }

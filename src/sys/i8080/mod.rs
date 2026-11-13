@@ -1,6 +1,7 @@
-extern crate rand;
-
-use std::{thread, time};
+use std::{
+    thread,
+    time::{Duration, Instant},
+};
 
 use rand::Rng;
 
@@ -23,14 +24,16 @@ pub struct I8080 {
     flags: Flags,
     memory: Memory,
     cycles: u64,
+    /// Address of the instruction currently executing, PC already points to the next one
+    inst_addr: u16,
 
     pub halted: bool,
-    interrupt_flip_flop: bool,
+    interrupts_enabled: bool,
     interrupt_op_code: Option<u8>,
     rx_devices: Vec<RxDevice>,
     tx_devices: Vec<TxDevice>,
 
-    from_time: time::SystemTime,
+    from_time: Instant,
 
     pub interactive: bool,
     pub current_state: String,
@@ -38,7 +41,7 @@ pub struct I8080 {
 
 const FREQUENCY: u64 = 2_000_000;
 const STEP_MS: u64 = 10;
-const CYCLES_PER_STEP: u64 = (FREQUENCY as f64 / (1000_f64 / STEP_MS as f64)) as u64;
+const CYCLES_PER_STEP: u64 = FREQUENCY * STEP_MS / 1000;
 
 impl I8080 {
     pub fn new(rx_devices: Vec<RxDevice>, tx_devices: Vec<TxDevice>) -> Self {
@@ -47,27 +50,26 @@ impl I8080 {
             memory: Memory::new(),
             flags: Flags::new(),
             cycles: 0,
+            inst_addr: 0,
             halted: false,
-            interrupt_flip_flop: false,
+            interrupts_enabled: false,
             interrupt_op_code: None,
             rx_devices,
             tx_devices,
             interactive: false,
             current_state: String::new(),
-            from_time: time::SystemTime::now(),
+            from_time: Instant::now(),
         }
     }
 
     fn sleep_for_hz(&mut self) {
         if self.cycles > CYCLES_PER_STEP {
             self.cycles -= CYCLES_PER_STEP;
-            let d = time::SystemTime::now()
-                .duration_since(self.from_time)
-                .unwrap();
-            let s = STEP_MS.saturating_sub(d.as_millis() as u64);
-            debug!("CPU: sleep {} millis", s);
-            thread::sleep(time::Duration::from_millis(s));
-            self.from_time = time::SystemTime::now();
+            let step = Duration::from_millis(STEP_MS);
+            let sleep_for = step.saturating_sub(self.from_time.elapsed());
+            debug!("CPU: sleep {:?}", sleep_for);
+            thread::sleep(sleep_for);
+            self.from_time = Instant::now();
         }
     }
 
@@ -80,46 +82,49 @@ impl I8080 {
         }
     }
 
+    /// Fetch and execute a single instruction, or a pending interrupt if interrupts are enabled
+    ///
+    /// PC is advanced past the instruction before it executes so that jumps, calls, and returns
+    /// can overwrite it, and so `CALL` pushes the address of the following instruction. An
+    /// interrupt instruction is not fetched from memory so PC is left as is.
     pub fn cycle(&mut self) {
-        let is_interrupt: bool = self.interrupt_flip_flop && self.interrupt_op_code.is_some();
-        let inst: u8 = if is_interrupt {
-            self.interrupt_flip_flop = false;
-            let inst = self.interrupt_op_code.unwrap();
-            self.interrupt_op_code = None;
-            inst
+        self.inst_addr = self.registers.pc;
+        let interrupt = if self.interrupts_enabled {
+            self.interrupt_op_code.take()
         } else {
-            self.pc_inst()
+            None
         };
-        let meta: OpMeta = I8080_OP_META[inst as usize];
-        let pc = self.registers.pc;
+        let inst = match interrupt {
+            Some(inst) => {
+                self.interrupts_enabled = false;
+                inst
+            }
+            None => self.memory.read_byte(self.inst_addr),
+        };
+        let meta: OpMeta = I8080_OP_META[usize::from(inst)];
+        if interrupt.is_none() {
+            self.registers.pc = self.inst_addr.wrapping_add(meta.width() as u16);
+        }
         self.execute(inst);
-        let pc_changed = self.registers.pc != pc;
-        self.cycles += meta.cycles as u64;
+        self.cycles += u64::from(meta.cycles);
         if self.interactive || log_enabled!(Level::Debug) {
-            self.current_state = self.fmt_instruction(inst, meta, pc, is_interrupt);
+            self.current_state = self.fmt_instruction(inst, meta, interrupt.is_some());
         }
         self.log_cycle();
-        if !pc_changed && !is_interrupt {
-            if self.registers.pc as u16 + meta.width() as u16 > u8::MAX.into() {
-                warn!("PC larger than address space, halting");
-                self.halt()
-            } else {
-                self.registers.pc += meta.width() as u16;
-            }
-        }
     }
 
+    /// Queue an instruction to execute once interrupts are enabled (`EI`)
     pub fn issue_interrupt(&mut self, inst: u8) {
-        self.interrupt_flip_flop = true;
         self.interrupt_op_code = Some(inst);
     }
 
-    pub fn load(&mut self, addr: u16, prog: Vec<u8>) -> usize {
+    /// Load a program into memory, returning the number of bytes loaded
+    pub fn load(&mut self, addr: u16, prog: &[u8]) -> usize {
         self.memory.load(addr, prog)
     }
 
     pub fn randomize(&mut self) {
-        self.flags.from_byte(rand::thread_rng().gen());
+        self.flags.set_from_byte(rand::thread_rng().gen());
         self.registers.randomize();
         self.memory.randomize();
     }
@@ -132,33 +137,29 @@ impl I8080 {
         self.registers.pc
     }
 
-    /// Get the instruction at PC
-    fn pc_inst(&self) -> u8 {
-        self.memory.read_byte(self.registers.pc)
-    }
-
-    /// Get the byte argument at PC+1
+    /// Get the byte argument of the current instruction
     fn pc_argb(&self) -> u8 {
-        self.memory.read_byte(self.registers.pc + 1)
+        self.memory.read_byte(self.inst_addr.wrapping_add(1))
     }
 
-    /// Get the word argument at PC+1
+    /// Get the word argument of the current instruction
     fn pc_argw(&self) -> u16 {
-        self.memory.read_word_little_endian(self.registers.pc + 1)
+        self.memory
+            .read_word_little_endian(self.inst_addr.wrapping_add(1))
     }
 
-    fn fmt_instruction(&self, inst: u8, meta: OpMeta, pc: u16, is_interrupt: bool) -> String {
+    fn fmt_instruction(&self, inst: u8, meta: OpMeta, is_interrupt: bool) -> String {
         let mut inst_hex: String = format!("{:02x}", inst);
         let mut op: String = meta.op.to_owned();
         if meta.argb {
-            let argb = self.memory.read_byte(pc + 1);
+            let argb = self.pc_argb();
             inst_hex.push_str(&format!(" {:02x}", argb));
             if meta.asm_arg_count == 2 {
                 op.push(',');
             }
             op.push_str(&format!(" {:#04x}", argb));
         } else if meta.argw {
-            let argw = self.memory.read_word_little_endian(self.registers.pc + 1);
+            let argw = self.pc_argw();
             inst_hex.push_str(&format!(" {:04x}", argw));
             if meta.asm_arg_count == 2 {
                 op.push(',');
@@ -168,7 +169,7 @@ impl I8080 {
         let address = if is_interrupt {
             "n/a".to_string()
         } else {
-            format!("{:#04x}", pc as u16)
+            format!("{:#06x}", self.inst_addr)
         };
         format!(
             "Inst {{ addr: {}, dis: \"{}\", hex: [{}], interrupt: {} }}",
@@ -209,13 +210,13 @@ impl I8080 {
         format!(
             "   ┌─────────────────────────┐      ┌────────────┐
 PC │ {:#06x}                  │      │ Sign:   {}  │
-   ├─────────────────────────┤      ├────────────┤ 
+   ├─────────────────────────┤      ├────────────┤
 SP │ {:#06x}                  │      │ Zero:   {}  │
-   ├────────────┬────────────┤      ├────────────┤ 
+   ├────────────┬────────────┤      ├────────────┤
 B  │ {:#04x} ('{}') │ {:#04x} ('{}') │ C    │ Aux:    {}  │
-   ├────────────┼────────────┤      ├────────────┤ 
+   ├────────────┼────────────┤      ├────────────┤
 D  │ {:#04x} ('{}') │ {:#04x} ('{}') │ E    │ Parity: {}  │
-   ├────────────┼────────────┤      ├────────────┤ 
+   ├────────────┼────────────┤      ├────────────┤
 H  │ {:#04x} ('{}') │ {:#04x} ('{}') │ L    │ Carry:  {}  │
    ├────────────┼────────────┘      └────────────┘
 A  │ {:#04x} ('{}') │

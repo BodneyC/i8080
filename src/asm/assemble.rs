@@ -1,10 +1,11 @@
 //! 8080 assembler
 //!
-//! There are some parts of this which are a little off-spec however all seem to fucntion as
+//! There are some parts of this which are a little off-spec however all seem to function as
 //! intended... which is nice.
 //!
 //! There's no sense of PIC here, nor is there a loader to perform similar tasks. If you wish for
-//! your code to be loaded at a particular address... you need to tell the assembler at the start.
+//! your code to be loaded at a particular address, you need to tell the assembler with
+//! `--load-at`; the resulting binary begins at that address.
 //!
 //! # Meta-instructions
 //!
@@ -15,13 +16,14 @@
 //! - `DS`, `DB`, and `DW` to define storage
 //! - `ORG` to continue assembling at a specific address (with gaps zero-filled)
 //! - `EQU` to immutably, and `SET` to mutably, set values
+//! - `END` to stop assembling
 //!
 //! ## Macros
 //!
-//! Macros are short pieces of code that can be called like an instruction, the compiler generates
-//! the code for the macro with each invocation.
+//! Macros are short pieces of code that can be called like an instruction, the assembler
+//! generates the code for the macro with each invocation.
 //!
-//! Macro-endm pairs are supported however they cannot be nested.
+//! Macro definitions cannot be nested, though a macro may call other, previously defined, macros.
 //!
 //! When macros are called upon, they must have already been defined (that is, sequentially in
 //! the source file), so:
@@ -68,7 +70,7 @@
 //!
 //! ## Defines
 //!
-//! `DS` takes a single expression resolving to an 8-bit (one-byte) value
+//! `DS` takes a single expression and reserves that many zeroed bytes
 //!
 //! `DW` is variadic and takes multiple expressions resolving to two-byte (16-bit) values - two
 //! character strings may be also used here.
@@ -78,7 +80,7 @@
 //! ```asm
 //! DB 0x45           ; define 1 byte of the value 0x45
 //! DB 'some-string$' ; define 12 bytes of the ASCII values of the string
-//! DB 0x45, 0x52     ; define 2 bytes of the value 0x4552
+//! DB 0x45, 0x52     ; define 2 bytes, 0x45 followed by 0x52
 //! ```
 //!
 //! # Examples
@@ -86,14 +88,13 @@
 //! To assemble a file to a specific output file
 //!
 //! ```sh
-//! i8080 asm \
-//!     --output ./hello-world.bin \
-//!     --register-definitions \
-//!     ./rsc/asm/hello-world.asm
+//! i8080 asm --output ./hello-world.bin ./rsc/asm/hello-world.asm
 //! ```
 //!
-//! The flag `--register-definitions` is used to include some `EQU` statements which are fairly
-//! standard, these are
+//! # Register Names
+//!
+//! By default the register names are defined as if by the following `EQU` statements, the flag
+//! `--no-register-definitions` (`--no-reg-defs`) omits them, freeing the names for use as labels
 //!
 //! ```asm
 //! B: EQU 0
@@ -106,7 +107,6 @@
 //! A: EQU 7
 //! ```
 
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fs;
 use std::io;
@@ -116,299 +116,165 @@ use crate::meta::I8080_OP_META;
 use crate::util;
 
 use super::{
-    errors::{AssemblerError, CodeGenError, ParserError},
+    errors::{AssemblerError, CodeGenError, OpParseError, ParserError},
     expressions::parser::{parse_expression, parse_expression_u16, ExprOutput},
     find_op_code,
-    label::Label,
+    label::{Label, LabelKind},
     tokenizer::{self, LineMeta},
 };
 
-#[derive(Debug, Clone, Default)]
-pub struct Macro {
-    lines: Vec<LineMeta>,
-    bytes: Vec<u8>,
-    width: usize,
-    uses_pc: bool,
+/// One past the highest addressable byte
+const ADDRESS_SPACE: u32 = 0x10000;
+
+const REGISTERS: [(&str, u16); 8] = [
+    ("B", 0),
+    ("C", 1),
+    ("D", 2),
+    ("E", 3),
+    ("H", 4),
+    ("L", 5),
+    ("M", 6),
+    ("A", 7),
+];
+
+fn register_definitions() -> HashMap<String, Label> {
+    REGISTERS
+        .iter()
+        .map(|&(name, value)| (name.to_string(), Label::new_equ(value)))
+        .collect()
 }
 
-impl Macro {
-    pub fn new() -> Self {
-        Default::default()
+#[derive(Debug, Clone, Default)]
+pub struct Macro {
+    /// Lines of the macro body, addressed relative to the start of the macro
+    lines: Vec<LineMeta>,
+    width: usize,
+}
+
+/// Mutable state used while walking the source in [`Assembler::parse_at`]
+#[derive(Debug)]
+struct ParseState {
+    load_address: u16,
+    /// `u32` so that a program ending exactly at the top of memory is representable
+    address: u32,
+    highest_address: u32,
+    macro_name: Option<String>,
+    macro_offset: u16,
+    in_if: bool,
+    skipping: bool,
+}
+
+impl ParseState {
+    fn new(load_address: u16) -> Self {
+        Self {
+            load_address,
+            address: load_address.into(),
+            highest_address: load_address.into(),
+            macro_name: None,
+            macro_offset: 0,
+            in_if: false,
+            skipping: false,
+        }
+    }
+
+    /// The current address as a valid 8080 address
+    fn pc(&self) -> Result<u16, ParserError> {
+        u16::try_from(self.address).map_err(|_| ParserError::AddressOverflow)
+    }
+
+    fn advance(&mut self, width: usize) -> Result<(), ParserError> {
+        self.address = u32::try_from(width)
+            .ok()
+            .and_then(|width| self.address.checked_add(width))
+            .filter(|&address| address <= ADDRESS_SPACE)
+            .ok_or(ParserError::AddressOverflow)?;
+        self.highest_address = self.highest_address.max(self.address);
+        Ok(())
     }
 }
 
-fn get_reg_defs() -> HashMap<String, Label> {
-    let mut map = HashMap::new();
-    map.insert("B".to_string(), Label::new_addr(Some(0)));
-    map.insert("C".to_string(), Label::new_addr(Some(1)));
-    map.insert("D".to_string(), Label::new_addr(Some(2)));
-    map.insert("E".to_string(), Label::new_addr(Some(3)));
-    map.insert("H".to_string(), Label::new_addr(Some(4)));
-    map.insert("L".to_string(), Label::new_addr(Some(5)));
-    map.insert("M".to_string(), Label::new_addr(Some(6)));
-    map.insert("A".to_string(), Label::new_addr(Some(7)));
-    map
+fn first_arg(line: &LineMeta) -> Result<&str, ParserError> {
+    line.args_list
+        .first()
+        .map(String::as_str)
+        .ok_or(ParserError::WrongNumberOfArgs(1, 0))
+}
+
+/// The value of an evaluated expression, which must not be empty (e.g. `''`, `SP`, or `PSW`)
+fn expr_value(inst: &str, arg: &str, expr: &[u8]) -> Result<u16, ParserError> {
+    if expr.is_empty() {
+        Err(ParserError::InvalidArgument(
+            inst.to_string(),
+            arg.to_string(),
+        ))
+    } else {
+        Ok(util::vec_u8_to_u16(expr))
+    }
 }
 
 pub struct Assembler {
     args: AssembleArgs,
-    lines: RefCell<Vec<LineMeta>>,
-    macros: RefCell<HashMap<String, Macro>>,
+    /// Lines to generate code for, i.e. instructions, defines, and macro calls
+    lines: Vec<LineMeta>,
+    macros: HashMap<String, Macro>,
     labels: HashMap<String, Label>,
-    prog_width: u16,
-    erroring_line: Option<LineMeta>,
+    /// Address one past the last byte of the program
+    end_address: u32,
+    /// Line number and source of the line being processed, reported alongside errors
+    current_line: Option<(usize, String)>,
 }
 
 impl Assembler {
     pub fn new(args: AssembleArgs) -> Self {
         Self {
             args,
-            lines: RefCell::new(Vec::new()),
-            macros: RefCell::new(HashMap::new()),
+            lines: Vec::new(),
+            macros: HashMap::new(),
             labels: HashMap::new(),
-            prog_width: 0,
-            erroring_line: None,
+            end_address: 0,
+            current_line: None,
         }
     }
 
+    /// Assemble the input file, returning the program as it should be loaded at `load_at`
     pub fn assemble(&mut self) -> Result<Vec<u8>, AssemblerError> {
-        if self.args.register_definitions {
-            self.labels = get_reg_defs();
+        if !self.args.no_register_definitions {
+            self.labels = register_definitions();
         }
-        self.load_file()
-            .and_then(|lines| {
-                self.parse_at(lines, self.args.load_at)
-                    .map_err(|e| e.into())
-            })
-            .and_then(|_| self.gen_macros().map_err(|e| e.into()))
-            .and_then(|_| self.generate_prog().map_err(|e| e.into()))
-            .map_err(|e| {
-                self.print_err_msg(&e);
-                e
+        self.assemble_inner()
+            .map_err(|e| match self.current_line.take() {
+                Some((line_no, raw_line)) => AssemblerError::AtLine {
+                    line_no,
+                    raw_line,
+                    source: Box::new(e),
+                },
+                None => e,
             })
     }
 
-    /// Fill the macros with useful bytes
-    ///
-    /// The only unknown in epxression resolution is PC ($), if this is found in any expression,
-    /// the lines and the macro are marked as `uses_pc`
-    ///
-    /// When the real code comes to load in the macro, they should check if this flag is set and
-    /// regenerate the macro code specific to that call - a better fixup method could exist
-    /// but that seems like effort I don't have
-    fn gen_macros(&mut self) -> Result<(), CodeGenError> {
-        self.erroring_line = None;
-        for (_, _macro) in self.macros.borrow_mut().iter_mut() {
-            for line in _macro.lines.iter_mut() {
-                self.erroring_line = Some(LineMeta::erroring(line));
-                let (mut bytes, uses_pc) = self.gen_for_line(line, line.address, true)?;
-                if bytes.len() != line.width {
-                    return Err(CodeGenError::UnexpectedLength(line.width, bytes.len()));
-                }
-                if uses_pc {
-                    line.uses_pc = true;
-                }
-                _macro.bytes.append(&mut bytes);
-                if line.uses_pc {
-                    _macro.uses_pc = true;
-                }
-            }
-        }
-        Ok(())
+    fn assemble_inner(&mut self) -> Result<Vec<u8>, AssemblerError> {
+        let lines = self.load_file()?;
+        self.parse_at(lines, self.args.load_at)?;
+        Ok(self.generate_prog()?)
     }
 
-    fn gen_for_line(
-        &self,
-        line: &LineMeta,
-        address: u16,
-        inside_macro: bool,
-    ) -> Result<(Vec<u8>, bool), CodeGenError> {
-        trace!("generating code for line {}", line.line_no);
-        if line.op_code.is_some() {
-            self.gen_for_instruction(line, address)
-        } else {
-            self.gen_for_macro_call(line, address, inside_macro)
-        }
+    pub fn write(&self, bytes: &[u8]) -> Result<(), io::Error> {
+        fs::write(&self.args.output, bytes)
     }
 
-    fn gen_for_instruction(
-        &self,
-        line: &LineMeta,
-        address: u16,
-    ) -> Result<(Vec<u8>, bool), CodeGenError> {
-        let mut uses_pc = false;
-        let mut parsed_exprs: Vec<ExprOutput> = Vec::new();
-        for arg in line.args_list.iter() {
-            let (v, flags) = parse_expression(arg, address, &self.labels)?;
-            parsed_exprs.push((v, flags));
-            if flags.pc {
-                uses_pc = true;
+    fn load_file(&mut self) -> Result<Vec<LineMeta>, AssemblerError> {
+        let source = fs::read_to_string(&self.args.input)?;
+        let mut lines = vec![];
+        for (idx, raw_line) in source.lines().enumerate() {
+            let line_no = idx + 1;
+            self.current_line = Some((line_no, raw_line.to_string()));
+            if let Some(mut line) = tokenizer::tokenize(raw_line)? {
+                line.line_no = line_no;
+                lines.push(line);
             }
         }
-        debug!(
-            "@{:<03} parsed args ({}): {:?}",
-            line.line_no,
-            parsed_exprs.len(),
-            parsed_exprs,
-        );
-        match line.inst.as_ref().unwrap().as_str() {
-            "DB" => {
-                let mut bytes: Vec<u8> = vec![];
-                for (expr, flags) in parsed_exprs.iter() {
-                    if flags.string {
-                        for byte in expr {
-                            bytes.push(*byte);
-                        }
-                    } else {
-                        bytes.push(expr[0]);
-                    }
-                }
-                debug!("@{:<03} DB generated {} bytes", line.line_no, bytes.len());
-                trace!("@{:<03} {:?}", line.line_no, bytes);
-                Ok((bytes, uses_pc))
-            }
-            "DW" => {
-                let mut bytes: Vec<u8> = vec![];
-                for (expr, _) in parsed_exprs.iter() {
-                    let pair = util::vec_u8_to_u16(expr);
-                    bytes.push(pair as u8);
-                    bytes.push((pair >> 8) as u8);
-                }
-                debug!("@{:<03} DW generated {} bytes", line.line_no, bytes.len());
-                trace!("@{:<03} {:?}", line.line_no, bytes);
-                Ok((bytes, uses_pc))
-            }
-            "DS" => {
-                let len = util::vec_u8_to_u16(&parsed_exprs[0].0);
-                let bytes: Vec<u8> = vec![0; len as usize];
-                debug!("@{:<03} DS {} bytes", line.line_no, bytes.len());
-                Ok((bytes, uses_pc))
-            }
-            name => {
-                // We know the number of args is correct so we don't care "which" it is
-                let sp = parsed_exprs.iter().any(|e| e.1.sp);
-                let psw = parsed_exprs.iter().any(|e| e.1.psw);
-                let arg0 = if !parsed_exprs.is_empty() {
-                    util::vec_u8_to_u16(&parsed_exprs[0].0)
-                } else {
-                    0
-                };
-                let arg1 = if parsed_exprs.len() > 1 {
-                    util::vec_u8_to_u16(&parsed_exprs[1].0)
-                } else {
-                    0
-                };
-                trace!(
-                    "@{:<03} {} {{\n  args: {:?},\n  nargs: {},\n  sp: {}, psw: {}\n}}",
-                    line.line_no,
-                    name,
-                    parsed_exprs,
-                    parsed_exprs.len(),
-                    sp,
-                    psw
-                );
-                match find_op_code::from_args_and_sp_psw(name, arg0, arg1, sp, psw) {
-                    Ok(code) => {
-                        debug!("@{:<03} {} op code {}", line.line_no, name, code);
-
-                        let mut inst_bytes: Vec<u8> = vec![code as u8];
-
-                        let meta = I8080_OP_META[code];
-                        if meta.argb || meta.argw {
-                            trace!("@{:<03} {} has a programmable argument", line.line_no, name);
-                            let idx = meta.asm_arg_count - 1;
-                            match parsed_exprs.get(idx) {
-                                Some((bytes, _)) => {
-                                    if meta.argb {
-                                        inst_bytes.push(*bytes.get(0).unwrap());
-                                    } else if meta.argw {
-                                        inst_bytes.push(*bytes.get(0).unwrap());
-                                        inst_bytes.push(*bytes.get(1).unwrap());
-                                    }
-                                }
-                                None => {
-                                    return Err(CodeGenError::ParserError(
-                                        ParserError::WrongNumberOfArgs(idx, parsed_exprs.len()),
-                                    ))
-                                }
-                            }
-                        }
-
-                        trace!("@{:<03} {:?}", line.line_no, inst_bytes);
-                        Ok((inst_bytes, uses_pc))
-                    }
-                    Err(e) => {
-                        debug!("@{:<03} {} unable to find op", line.line_no, name);
-                        Err(CodeGenError::ParserError(ParserError::NoInstructionFound(
-                            e,
-                        )))
-                    }
-                }
-            }
-        }
-    }
-
-    fn gen_for_macro_call(
-        &self,
-        line: &LineMeta,
-        address: u16,
-        inside_macro: bool,
-    ) -> Result<(Vec<u8>, bool), CodeGenError> {
-        let macros = self.macros.borrow();
-        let macro_name = line.inst.as_ref().unwrap();
-        let _macro = macros.get(macro_name).unwrap();
-        if _macro.uses_pc {
-            trace!("@{:<03} {} macro uses PC ($)", line.line_no, macro_name);
-            if inside_macro {
-                debug!(
-                    "@{:<03} macro called inside macro uses PC ($)",
-                    line.line_no
-                );
-                Err(CodeGenError::ParserError(
-                    ParserError::MacroCallInMacroUsesSp,
-                ))
-            } else {
-                let bytes = self.gen_for_macro_at(_macro, address)?;
-                Ok((bytes, _macro.uses_pc))
-            }
-        } else {
-            trace!(
-                "@{:<03} {} macro doesn't use PC ($)",
-                line.line_no,
-                macro_name
-            );
-            Ok((_macro.bytes.clone(), _macro.uses_pc))
-        }
-    }
-
-    fn gen_for_macro_at(&self, _macro: &Macro, addr: u16) -> Result<Vec<u8>, CodeGenError> {
-        let mut bytes: Vec<u8> = Vec::new();
-        for line in _macro.lines.iter() {
-            let (mut _bytes, _) = self.gen_for_line(line, line.address + addr, true)?;
-            bytes.append(&mut _bytes);
-        }
-        Ok(bytes)
-    }
-
-    /// Because of the ORG instruction, we preallocate the vec so cannot `.append` and must instead
-    /// `[line.address]` into it
-    fn generate_prog(&mut self) -> Result<Vec<u8>, CodeGenError> {
-        self.erroring_line = None;
-        let mut bytes = vec![0; self.prog_width as usize];
-        for line in self.lines.borrow().iter() {
-            self.erroring_line = Some(LineMeta::erroring(line));
-            let (line_bytes, _) = self.gen_for_line(line, line.address, false)?;
-            if line_bytes.len() != line.width {
-                return Err(CodeGenError::UnexpectedLength(line.width, bytes.len()));
-            }
-            for (idx, byte) in line_bytes.iter().enumerate() {
-                bytes[line.address as usize + idx] = *byte;
-            }
-        }
-        if self.args.hlt {
-            bytes.push(0x76);
-        }
-        Ok(bytes)
+        self.current_line = None;
+        Ok(lines)
     }
 
     #[cfg(test)]
@@ -416,442 +282,389 @@ impl Assembler {
         self.parse_at(lines, 0)
     }
 
-    /// Holy shit, this does a lot. And might be the single worst function I've ever written...
+    /// First pass over the source
     ///
-    /// ## Notes
+    /// Labels are defined, `IF`s are evaluated, macros are recorded, and every remaining line is
+    /// given its address and width ready for code generation.
     ///
-    /// `self.labels` is populated in place implying that labels cannot be used in expressions
-    /// before assignment
-    ///
-    /// IFs conditions are evaluated implying the same as before, if the condition is `false`, then
-    /// the following lines are not loaded until an ENDIF is found
-    ///
-    /// Macros are tracked, their width and the related lines are recorded, at the end of the
-    /// function, width used in vector creation in `self`
-    ///
-    /// The address is incremented by the width of the instruction or the width of the macro
-    /// where appropriate (assumes macro already exists)
-    ///
-    /// Some expressions are calculated here (earlier than I would like):
-    /// - IF, DB, DW, DS, ORG, as they are needed to control the current address
-    /// - EQU, SET, as they *may* be needed in the above
-    ///
-    /// Lines without op codes are macro invocations, these will not be be passed to the
-    /// expression parser
-    ///
-    /// ## Things Done Here
-    ///
-    /// - Addresses are calculated
-    /// - Instruction widths are known
-    /// - Macros are sized
-    /// - IFs' conditions are known
-    /// - The relevant lines are separated from the rest
+    /// As labels are defined in a single pass, any expression evaluated here (`IF`, `ORG`, `EQU`,
+    /// `SET`, `DB`, `DS`) may only use labels defined earlier in the source.
     fn parse_at(&mut self, lines: Vec<LineMeta>, load_address: u16) -> Result<(), ParserError> {
-        let mut resolved_lines: Vec<LineMeta> = Vec::new();
+        let mut state = ParseState::new(load_address);
+        self.lines.clear();
+        self.macros.clear();
 
-        let mut macros: HashMap<String, Macro> = HashMap::new();
-        let mut current_macro_name: Option<&str> = None;
+        for line in lines {
+            self.current_line = Some((line.line_no, line.raw_line.clone()));
 
-        let mut inside_if: bool = false;
-        let mut skip_in_true_if: bool = false;
-
-        let mut address: u16 = load_address;
-        let mut macro_address: u16 = load_address;
-        let mut highest_address: u16 = load_address;
-
-        for line in lines.iter() {
-            self.erroring_line = Some(LineMeta::erroring(line));
-            // The IFs control `skip`, if an IF resolves to `false`, we skip until ENDIF
-            if let Some(inst) = &line.inst {
-                match inst.as_str() {
-                    "IF" => {
-                        if inside_if {
-                            debug!("@{:<03} IF found without previous ENDIF", line.line_no);
-                            return Err(ParserError::NestedIf);
-                        }
-                        let first_arg = line.args_list[0].to_string();
-                        let (val, _) = parse_expression_u16(first_arg, address, &self.labels)?;
-                        let cond = val > 0;
-                        debug!("@{:<03} IF condition is {}", line.line_no, cond);
-                        inside_if = true;
-                        skip_in_true_if = !cond;
+            match line.inst.as_deref() {
+                Some("IF") => self.parse_if(&line, &mut state)?,
+                Some("ENDIF") => {
+                    if !state.in_if {
+                        return Err(ParserError::NotInIf);
                     }
-                    "ENDIF" => {
-                        if !inside_if {
-                            debug!("@{:<03} ENDIF found without previous IF", line.line_no);
-                            return Err(ParserError::NotInIf);
-                        }
-                        debug!("@{:<03} ENDIF reached", line.line_no);
-                        inside_if = false;
-                        skip_in_true_if = false;
-                    }
-                    "END" => {
-                        debug!("@{:<03} END found, leaving parser", line.line_no);
-                        break;
-                    }
-                    _ => {}
+                    state.in_if = false;
+                    state.skipping = false;
                 }
-            }
-
-            if skip_in_true_if {
-                continue;
-            }
-
-            if let Some(label) = &line.label {
-                debug!("@{:<03} contains label ({:?})", line.line_no, line.label);
-
-                // Check if we're overwriting a label on any op but SET
-                if self.labels.contains_key(label) {
-                    debug!(
-                        "@{:<03} label ({:?}) on inst {:?} already loaded",
-                        line.line_no, line.inst, line.label
-                    );
-                    if line.inst.as_ref().unwrap().as_str() != "SET" {
-                        return Err(ParserError::LabelAlreadyDefined(
-                            label.to_string(),
-                            *self.labels.get(label).unwrap(),
-                        ));
-                    }
+                Some("END") if !state.skipping => {
+                    debug!("@{:<03} END found, leaving parser", line.line_no);
+                    break;
                 }
-
-                // Load it labels without setting a value
-                if !line.label_only {
-                    let inst = line.inst.as_ref().unwrap().as_str();
-                    match inst {
-                        // We're checking the use of EQU multiple times above
-                        "SET" | "EQU" => {
-                            let arg = line.args_list[0].to_string();
-                            let (val, _) = parse_expression_u16(arg, address, &self.labels)?;
-                            debug!(
-                                "@{:<03} label ({:?}) loaded with val ({}) for {:?}",
-                                line.line_no, line.label, val, line.inst
-                            );
-                            if inst == "EQU" {
-                                self.labels
-                                    .insert(label.to_string(), Label::new_equ(Some(val)));
-                            } else {
-                                self.labels
-                                    .insert(label.to_string(), Label::new_set(Some(val)));
-                            }
-                        }
-                        // This includes MACRO as macro labels can be used in expressions
-                        _ => {
-                            debug!(
-                                "@{:<03} label ({:?}) loaded with addr ({})",
-                                line.line_no, line.label, address,
-                            );
-                            self.labels
-                                .insert(label.to_string(), Label::new_addr(Some(address)));
-                        }
-                    };
-                } else {
-                    debug!(
-                        "@{:<03} label-only ({:?}) loaded with addr ({})",
-                        line.line_no, line.label, address,
-                    );
-                    self.labels
-                        .insert(label.to_string(), Label::new_addr(Some(address)));
-                }
-            }
-
-            if line.label_only {
-                let mut new_line = line.clone();
-                new_line.address = address;
-                new_line.width = 0;
-                if let Some(name) = current_macro_name {
-                    let m = macros.get_mut(name).unwrap();
-                    m.lines.push(new_line)
-                } else {
-                    resolved_lines.push(new_line);
-                }
-                continue;
-            }
-
-            let width: usize;
-
-            let inst_name = line.inst.as_ref().unwrap();
-
-            // None of these should be in the `new_lines` vec, therefore all `continue`:
-            //
-            // - Process MACRO start and end
-            // - ORG should set the address
-            // - IF and ENDIF are processed above
-            match inst_name.as_str() {
-                "MACRO" => {
-                    let label = line.label.as_ref().unwrap();
-                    debug!("@{:<03} macro {:?} to be loaded", line.line_no, line.label);
-                    if let Some(name) = current_macro_name {
-                        debug!("@{:<03} MACRO '{}' found within MACRO", line.line_no, name);
-                        return Err(ParserError::NestedMacro);
-                    }
-                    macros.insert(label.to_string(), Macro::new());
-                    current_macro_name = Some(label);
-                    continue;
-                }
-                "ENDM" => {
-                    if current_macro_name.is_none() {
-                        debug!("@{:<03} ENDM found with no MACRO", line.line_no);
-                        return Err(ParserError::NotInMacro);
-                    }
-                    debug!("@{:<03} ENDM reached", line.line_no);
-                    current_macro_name = None;
-                    macro_address = load_address;
-                    continue;
-                }
-                "ORG" => {
-                    if let Some(name) = current_macro_name {
-                        debug!("@{:<03} ORG used in MACRO '{}'", line.line_no, name);
-                        return Err(ParserError::OrigInMacro);
-                    }
-                    let arg = &line.args_list[0];
-                    let new_address =
-                        match parse_expression_u16(arg.to_string(), address, &self.labels) {
-                            Ok((val, _)) => val,
-                            Err(e) => {
-                                debug!("@{:<03} invalid expr '{}'", line.line_no, arg);
-                                return Err(ParserError::ExpressionError(e));
-                            }
-                        };
-                    debug!("@{:<03} ORG with new address {}", line.line_no, new_address);
-                    address = new_address;
-                    if address > highest_address {
-                        highest_address = address;
-                    }
-                    continue;
-                }
-                "IF" | "ENDIF" | "SET" | "EQU" => continue,
                 _ => {}
             }
 
-            // If an op_code is present, this is a predefined instruction
-            if let Some(op_code) = &line.op_code {
-                debug!("@{:<03} {:?} is not a macro", line.line_no, line.inst);
-
-                let inst_meta = I8080_OP_META[*op_code as usize];
-
-                // Check if instructions which requires a label, has one
-                if inst_meta.labelled && line.label.is_none() {
-                    debug!(
-                        "@{:<03} {:?} requires a label but none is present",
-                        line.line_no, line.inst
-                    );
-                    return Err(ParserError::OperationRequiresLabel(inst_name.clone()));
-                }
-
-                // Check we have the correct number of arguments
-                if inst_meta.define {
-                    // Check varargs has at least one arg
-                    if line.args_list.is_empty() {
-                        debug!(
-                            "@{:<03} define {:?} contains no args",
-                            line.line_no, line.inst,
-                        );
-                        return Err(ParserError::NoArgsForVariadic);
-                    } else {
-                        debug!(
-                            "@{:<03} define {:?} with args ({:?})",
-                            line.line_no, line.inst, line.args_list,
-                        );
-                        width =
-                            self.width_of_data_storage(inst_name.to_string(), &line.args_list)?;
-                    }
-                } else {
-                    // Check set args has correct #args
-                    if inst_meta.asm_arg_count != line.args_list.len() {
-                        debug!(
-                            "@{:<03} {:?} expected {} args (args: {:?})",
-                            line.line_no, line.inst, inst_meta.asm_arg_count, line.args_list,
-                        );
-                        return Err(ParserError::WrongNumberOfArgs(
-                            inst_meta.asm_arg_count,
-                            line.args_list.len(),
-                        ));
-                    } else {
-                        debug!(
-                            "@{:<03} {:?} with {} (args: {:?})",
-                            line.line_no,
-                            line.inst,
-                            inst_meta.width(),
-                            line.args_list,
-                        );
-                        width = inst_meta.width();
-                    }
-                }
-            }
-            // The only other thing it could be is a macro which should take no arguments
-            else {
-                debug!("@{:<03} {:?} should be a macro", line.line_no, line.inst);
-
-                if !line.args_list.is_empty() {
-                    debug!("@{:<03} {:?} macro has arguments", line.line_no, line.inst);
-                    return Err(ParserError::WrongNumberOfArgs(0, line.args_list.len()));
-                }
-
-                // Check that the macro call is not from within the definition of the macro
-                if let Some(name) = current_macro_name {
-                    if name == *inst_name {
-                        debug!(
-                            "@{:<03} {:?} macro is called within its definition",
-                            line.line_no, line.inst
-                        );
-                        return Err(ParserError::RecursiveMacro);
-                    }
-                }
-
-                // Get the width of the macro as set by this function
-                match macros.get(inst_name) {
-                    Some(_macro) => {
-                        debug!(
-                            "@{:<03} macro {:?} is of length {}",
-                            line.line_no, line.inst, _macro.width,
-                        );
-                        width = _macro.width;
-                    }
-                    None => {
-                        debug!("@{:<03} macro {:?} not found", line.line_no, line.inst);
-                        return Err(ParserError::MacroUseBeforeCreation);
-                    }
-                }
+            if state.skipping {
+                continue;
             }
 
-            let mut new_line = line.clone();
-            new_line.width = width;
+            if let Some(op_code) = line.op_code {
+                validate_op(&line, op_code)?;
+            }
 
-            if let Some(name) = current_macro_name {
-                // Cannot assign storage in a macro
-                match inst_name.as_str() {
-                    "DB" | "DW" | "DS" => {
-                        debug!("@{:<03} {} found in macro", line.line_no, inst_name);
-                        return Err(ParserError::DefineInMacro);
+            if let Some(label) = &line.label {
+                self.define_label(label, &line, state.pc()?)?;
+            }
+
+            match line.inst.as_deref() {
+                None | Some("IF" | "ENDIF" | "SET" | "EQU") => {}
+                Some("MACRO") => self.begin_macro(&line, &mut state)?,
+                Some("ENDM") => {
+                    if state.macro_name.take().is_none() {
+                        return Err(ParserError::NotInMacro);
                     }
-                    _ => {}
+                    state.macro_offset = 0;
                 }
-                // Cannot use an IF/ENDIF pair in a macro (implementation, not spec)
-                if inside_if {
-                    debug!("@{:<03} IF found within macro", line.line_no);
-                    return Err(ParserError::IfAndMacroMix);
-                }
-
-                new_line.address = macro_address;
-
-                debug!(
-                    "@{:<03} adding {} to '{}' macro width",
-                    line.line_no, width, name
-                );
-                let m = macros.get_mut(name).unwrap();
-                m.width += width;
-                m.lines.push(new_line);
-
-                macro_address += width as u16;
-                trace!(
-                    "@{:<03}+1 new macro ({}) address: {}",
-                    line.line_no,
-                    name,
-                    address
-                );
-            } else {
-                new_line.address = address;
-                debug!("@{:<03} adding to resolved lines", line.line_no);
-                resolved_lines.push(new_line);
-                // Address doesn't need updating in a macro
-                if (address as u32) + (width as u32) > 0xffff {
-                    warn!("@{:<03} program wraps the address space", line.line_no);
-                }
-                address += width as u16;
-                trace!("@{:<03}+1 new address: {}", line.line_no, address);
-                if address > highest_address {
-                    trace!("@{:<03} highest address set", line.line_no);
-                    highest_address = address;
-                }
+                Some("ORG") => self.parse_org(&line, &mut state)?,
+                Some(_) => self.place_line(line, &mut state)?,
             }
         }
 
-        self.erroring_line = None;
+        self.current_line = None;
 
-        if inside_if {
-            debug!("@EOF IFs without ENDIF");
+        if state.in_if {
             Err(ParserError::NoEndIf)
-        } else if let Some(name) = current_macro_name {
-            debug!("@EOF MACRO '{}' without ENDM", name);
+        } else if state.macro_name.is_some() {
             Err(ParserError::NoEndMacro)
         } else {
-            self.macros = RefCell::new(macros);
-            self.lines = RefCell::new(resolved_lines);
-            self.prog_width = highest_address;
-
+            self.end_address = state.highest_address;
             Ok(())
         }
     }
 
-    pub fn write(&self, bytes: Vec<u8>) -> Result<(), io::Error> {
-        fs::write(&self.args.output, &bytes)
+    fn parse_if(&self, line: &LineMeta, state: &mut ParseState) -> Result<(), ParserError> {
+        if state.in_if {
+            return Err(ParserError::NestedIf);
+        }
+        let (cond, _) = parse_expression_u16(first_arg(line)?, state.pc()?, &self.labels)?;
+        debug!("@{:<03} IF condition is {}", line.line_no, cond > 0);
+        state.in_if = true;
+        state.skipping = cond == 0;
+        Ok(())
     }
 
-    fn width_of_data_storage(&self, inst: String, args: &[String]) -> Result<usize, ParserError> {
-        match inst.as_str() {
-            "DB" => {
-                let mut width = 0;
-                for arg in args {
-                    let (bytes, flags) = parse_expression(arg, 0, &self.labels)?;
-                    if flags.string {
-                        width += bytes.len();
-                    } else {
-                        width += 1;
-                    }
-                }
-                Ok(width)
+    fn parse_org(&self, line: &LineMeta, state: &mut ParseState) -> Result<(), ParserError> {
+        if state.macro_name.is_some() {
+            return Err(ParserError::OrgInMacro);
+        }
+        let (address, _) = parse_expression_u16(first_arg(line)?, state.pc()?, &self.labels)?;
+        if address < state.load_address {
+            return Err(ParserError::OrgBeforeLoadAddress(
+                address,
+                state.load_address,
+            ));
+        }
+        debug!(
+            "@{:<03} ORG with new address {:#06x}",
+            line.line_no, address
+        );
+        state.address = address.into();
+        state.highest_address = state.highest_address.max(state.address);
+        Ok(())
+    }
+
+    fn begin_macro(&mut self, line: &LineMeta, state: &mut ParseState) -> Result<(), ParserError> {
+        if state.macro_name.is_some() {
+            return Err(ParserError::NestedMacro);
+        }
+        let name = line
+            .label
+            .clone()
+            .ok_or_else(|| ParserError::OperationRequiresLabel("MACRO".to_string()))?;
+        debug!("@{:<03} defining macro {}", line.line_no, name);
+        self.macros.insert(name.clone(), Macro::default());
+        state.macro_name = Some(name);
+        Ok(())
+    }
+
+    /// `SET` labels may be redefined by another `SET`, all other labels are immutable
+    fn define_label(&mut self, label: &str, line: &LineMeta, pc: u16) -> Result<(), ParserError> {
+        let inst = line.inst.as_deref();
+        if let Some(existing) = self.labels.get(label) {
+            if inst != Some("SET") || existing.kind != LabelKind::Set {
+                return Err(ParserError::LabelAlreadyDefined(
+                    label.to_string(),
+                    *existing,
+                ));
             }
+        }
+        let value = match inst {
+            Some("SET") => {
+                Label::new_set(parse_expression_u16(first_arg(line)?, pc, &self.labels)?.0)
+            }
+            Some("EQU") => {
+                Label::new_equ(parse_expression_u16(first_arg(line)?, pc, &self.labels)?.0)
+            }
+            _ => Label::new_addr(pc),
+        };
+        debug!("@{:<03} label {} = {:?}", line.line_no, label, value);
+        self.labels.insert(label.to_string(), value);
+        Ok(())
+    }
+
+    /// Size a line which generates code and add it to either the program or the current macro
+    fn place_line(
+        &mut self,
+        mut line: LineMeta,
+        state: &mut ParseState,
+    ) -> Result<(), ParserError> {
+        line.width = match line.op_code {
+            Some(op_code) => self.instruction_width(&line, op_code, state.pc()?)?,
+            None => self.macro_call_width(&line, state)?,
+        };
+
+        let Some(name) = &state.macro_name else {
+            line.address = state.pc()?;
+            state.advance(line.width)?;
+            trace!("@{:<03} placed at {:#06x}", line.line_no, line.address);
+            self.lines.push(line);
+            return Ok(());
+        };
+
+        if matches!(line.inst.as_deref(), Some("DB" | "DW" | "DS")) {
+            return Err(ParserError::DefineInMacro);
+        }
+        // Implementation limitation, not part of the spec
+        if state.in_if {
+            return Err(ParserError::IfAndMacroMix);
+        }
+        line.address = state.macro_offset;
+        state.macro_offset = u16::try_from(line.width)
+            .ok()
+            .and_then(|width| state.macro_offset.checked_add(width))
+            .ok_or(ParserError::AddressOverflow)?;
+        let m = self.macros.entry(name.clone()).or_default();
+        m.width += line.width;
+        m.lines.push(line);
+        Ok(())
+    }
+
+    fn instruction_width(
+        &self,
+        line: &LineMeta,
+        op_code: u16,
+        pc: u16,
+    ) -> Result<usize, ParserError> {
+        let meta = I8080_OP_META[op_code as usize];
+        if meta.define {
+            self.width_of_data_storage(meta.op, &line.args_list, pc)
+        } else {
+            Ok(meta.width())
+        }
+    }
+
+    fn macro_call_width(&self, line: &LineMeta, state: &ParseState) -> Result<usize, ParserError> {
+        let name = line.inst.as_deref().unwrap_or_default();
+        if !line.args_list.is_empty() {
+            return Err(ParserError::WrongNumberOfArgs(0, line.args_list.len()));
+        }
+        if state.macro_name.as_deref() == Some(name) {
+            return Err(ParserError::RecursiveMacro);
+        }
+        self.macros
+            .get(name)
+            .map(|m| m.width)
+            .ok_or_else(|| ParserError::MacroUseBeforeCreation(name.to_string()))
+    }
+
+    fn width_of_data_storage(
+        &self,
+        inst: &str,
+        args: &[String],
+        pc: u16,
+    ) -> Result<usize, ParserError> {
+        match inst {
+            "DB" => args
+                .iter()
+                .map(|arg| {
+                    let (bytes, flags) = parse_expression(arg, pc, &self.labels)?;
+                    Ok(if flags.string { bytes.len() } else { 1 })
+                })
+                .sum(),
             "DW" => Ok(args.len() * 2),
             "DS" => {
-                let arg0 = args.get(0).unwrap();
-                let (bytes, flags) = parse_expression(arg0, 0, &self.labels)?;
-                if flags.string {
-                    Err(ParserError::InvalidArgument(
-                        "DS".to_string(),
-                        arg0.to_string(),
-                    ))
-                } else {
-                    let width = bytes.get(0).unwrap();
-                    Ok(*width as usize)
+                let arg = args.first().ok_or(ParserError::NoArgsForVariadic)?;
+                match parse_expression_u16(arg, pc, &self.labels)? {
+                    (_, flags) if flags.string => Err(ParserError::InvalidArgument(
+                        inst.to_string(),
+                        arg.to_string(),
+                    )),
+                    (width, _) => Ok(width.into()),
                 }
             }
-            _ => Err(ParserError::UnknownDefine(inst)),
+            _ => Err(ParserError::UnknownDefine(inst.to_string())),
         }
     }
 
-    fn load_file(&mut self) -> Result<Vec<LineMeta>, AssemblerError> {
-        self.erroring_line = None;
-        let mut line_vec: Vec<LineMeta> = vec![];
-        match util::read_lines(&self.args.input) {
-            Ok(lines) => {
-                for (line_no, line_res) in lines.enumerate() {
-                    if let Ok(line) = line_res {
-                        self.erroring_line = Some(LineMeta::from_raw(line_no, line.to_string()));
-                        let line_opt = tokenizer::tokenize(&line)?;
-                        if let Some(mut line_meta) = line_opt {
-                            line_meta.line_no = line_no + 1;
-                            line_vec.push(line_meta);
-                        }
+    /// Second pass, generates the bytes for each line into a single image beginning at the load
+    /// address, gaps left by `ORG` are zero-filled
+    fn generate_prog(&mut self) -> Result<Vec<u8>, CodeGenError> {
+        let load_address = usize::from(self.args.load_at);
+        let mut bytes = vec![0; (self.end_address as usize).saturating_sub(load_address)];
+        for line in &self.lines {
+            self.current_line = Some((line.line_no, line.raw_line.clone()));
+            let line_bytes = self.gen_for_line(line, line.address)?;
+            let start = usize::from(line.address) - load_address;
+            bytes
+                .get_mut(start..start + line_bytes.len())
+                .ok_or(ParserError::AddressOverflow)?
+                .copy_from_slice(&line_bytes);
+        }
+        self.current_line = None;
+        if self.args.hlt {
+            bytes.push(0x76);
+        }
+        Ok(bytes)
+    }
+
+    fn gen_for_line(&self, line: &LineMeta, address: u16) -> Result<Vec<u8>, CodeGenError> {
+        let bytes = match line.op_code {
+            Some(_) => self.gen_for_instruction(line, address)?,
+            None => self.gen_for_macro_call(line, address)?,
+        };
+        if bytes.len() != line.width {
+            return Err(CodeGenError::UnexpectedLength(line.width, bytes.len()));
+        }
+        trace!("@{:<03} {:#06x}: {:02x?}", line.line_no, address, bytes);
+        Ok(bytes)
+    }
+
+    /// Macro bodies are generated per call as they may reference the program counter (`$`)
+    fn gen_for_macro_call(&self, line: &LineMeta, address: u16) -> Result<Vec<u8>, CodeGenError> {
+        let name = line.inst.as_deref().unwrap_or_default();
+        let m = self
+            .macros
+            .get(name)
+            .ok_or_else(|| ParserError::MacroUseBeforeCreation(name.to_string()))?;
+        let mut bytes = Vec::with_capacity(m.width);
+        for macro_line in &m.lines {
+            bytes.extend(self.gen_for_line(macro_line, address.wrapping_add(macro_line.address))?);
+        }
+        Ok(bytes)
+    }
+
+    fn gen_for_instruction(&self, line: &LineMeta, address: u16) -> Result<Vec<u8>, CodeGenError> {
+        let inst = line.inst.as_deref().unwrap_or_default();
+        let exprs = line
+            .args_list
+            .iter()
+            .map(|arg| parse_expression(arg, address, &self.labels))
+            .collect::<Result<Vec<ExprOutput>, _>>()?;
+        let mut args = line.args_list.iter().zip(&exprs);
+
+        match inst {
+            "DB" => {
+                let mut bytes = vec![];
+                for (arg, (expr, flags)) in args {
+                    if flags.string {
+                        bytes.extend(expr);
+                    } else {
+                        bytes.push(expr_value(inst, arg, expr)? as u8);
                     }
                 }
-                Ok(line_vec)
+                Ok(bytes)
             }
-            Err(e) => Err(AssemblerError::FileRead(e)),
+            "DW" => {
+                let mut bytes = vec![];
+                for (arg, (expr, _)) in args {
+                    bytes.extend(expr_value(inst, arg, expr)?.to_le_bytes());
+                }
+                Ok(bytes)
+            }
+            "DS" => {
+                let (arg, (expr, _)) = args.next().ok_or(ParserError::NoArgsForVariadic)?;
+                Ok(vec![0; expr_value(inst, arg, expr)?.into()])
+            }
+            _ => self.gen_for_op(inst, &line.args_list, &exprs),
         }
     }
 
-    fn print_err_msg(&mut self, e: &AssemblerError) {
-        println!("{}", e);
-        if let Some(line) = &self.erroring_line {
-            println!("\n  {: <3}| {}", line.line_no, line.raw_line);
+    fn gen_for_op(
+        &self,
+        inst: &str,
+        args: &[String],
+        exprs: &[ExprOutput],
+    ) -> Result<Vec<u8>, CodeGenError> {
+        // SP and PSW are only valid as the first argument
+        if exprs.iter().skip(1).any(|(_, flags)| flags.sp || flags.psw) {
+            return Err(OpParseError::InvalidRegister.into());
         }
+        let first_flags = exprs.first().map(|(_, flags)| *flags).unwrap_or_default();
+        let arg = |idx: usize| {
+            exprs
+                .get(idx)
+                .map_or(0, |(expr, _)| util::vec_u8_to_u16(expr))
+        };
+
+        let code = find_op_code::from_args_and_sp_psw(
+            inst,
+            arg(0),
+            arg(1),
+            first_flags.sp,
+            first_flags.psw,
+        )?;
+        let meta = I8080_OP_META[code];
+
+        let mut bytes = vec![code as u8];
+        if meta.argb || meta.argw {
+            // The immediate is always the final argument
+            let (arg, (expr, _)) = args
+                .iter()
+                .zip(exprs)
+                .next_back()
+                .ok_or(ParserError::WrongNumberOfArgs(meta.asm_arg_count, 0))?;
+            let value = expr_value(inst, arg, expr)?;
+            if meta.argb {
+                bytes.push(value as u8);
+            } else {
+                bytes.extend(value.to_le_bytes());
+            }
+        }
+        Ok(bytes)
     }
+}
+
+/// Check an instruction has a label if required and the correct number of arguments
+fn validate_op(line: &LineMeta, op_code: u16) -> Result<(), ParserError> {
+    let meta = I8080_OP_META[op_code as usize];
+    if meta.labelled && line.label.is_none() {
+        return Err(ParserError::OperationRequiresLabel(meta.op.to_string()));
+    }
+    if meta.define {
+        if line.args_list.is_empty() {
+            return Err(ParserError::NoArgsForVariadic);
+        }
+    } else if meta.asm_arg_count != line.args_list.len() {
+        return Err(ParserError::WrongNumberOfArgs(
+            meta.asm_arg_count,
+            line.args_list.len(),
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::borrow::Borrow;
     use std::path::PathBuf;
 
     impl AssembleArgs {
@@ -860,7 +673,7 @@ mod tests {
                 input: PathBuf::new(),
                 output: PathBuf::new(),
                 load_at: 0,
-                register_definitions: false,
+                no_register_definitions: false,
                 hlt: false,
             }
         }
@@ -872,19 +685,19 @@ mod tests {
 
         let args = vec!["13".to_string()];
         let width = ass
-            .width_of_data_storage("DB".to_owned(), &args)
+            .width_of_data_storage("DB", &args, 0)
             .expect("should parse db arg");
         assert_eq!(width, 1, "a byte of any value should be width 1");
 
         let args = vec!["13".to_string(), "12".to_string()];
         let width = ass
-            .width_of_data_storage("DB".to_owned(), &args)
+            .width_of_data_storage("DB", &args, 0)
             .expect("should parse db arg");
         assert_eq!(width, 2, "a list of bytes should return the length");
 
         let args = vec!["'this-string'".to_string()];
         let width = ass
-            .width_of_data_storage("DB".to_owned(), &args)
+            .width_of_data_storage("DB", &args, 0)
             .expect("should parse db arg");
         assert_eq!(width, 11, "'this-string' is eleven chars");
     }
@@ -895,7 +708,7 @@ mod tests {
 
         let args = vec!["13".to_string(), "fish".to_string()];
         let width = ass
-            .width_of_data_storage("DW".to_owned(), &args)
+            .width_of_data_storage("DW", &args, 0)
             .expect("should parse db arg");
         assert_eq!(width, 4, "double the numbers of args");
     }
@@ -906,12 +719,12 @@ mod tests {
 
         let args = vec!["13".to_string()];
         let width = ass
-            .width_of_data_storage("DS".to_owned(), &args)
+            .width_of_data_storage("DS", &args, 0)
             .expect("should parse db arg");
         assert_eq!(width, 13, "the result of the expression");
 
         let args = vec!["'hello'".to_string()];
-        let width = ass.width_of_data_storage("DS".to_owned(), &args);
+        let width = ass.width_of_data_storage("DS", &args, 0);
         assert!(width.is_err(), "should parse db arg");
         let e = width.unwrap_err();
         assert!(matches!(e, ParserError::InvalidArgument(_, _)));
@@ -919,11 +732,10 @@ mod tests {
             assert_eq!(s, "'hello'", "erroring arg should be 'hello'");
         }
 
-        ass.labels
-            .insert("_ident".to_string(), Label::new_addr(Some(2)));
+        ass.labels.insert("_ident".to_string(), Label::new_addr(2));
         let args = vec!["_ident".to_string()];
         let width = ass
-            .width_of_data_storage("DS".to_owned(), &args)
+            .width_of_data_storage("DS", &args, 0)
             .expect("should parse labels");
         assert_eq!(width, 2, "the result of the expression");
     }
@@ -945,19 +757,19 @@ mod tests {
         let raw_lines = vec![
             line_meta_for_parse("MOV", 0x40, vec!["A", "B"], Some("_l1")),
             line_meta_for_parse("DCR", 0x05, vec!["B"], None),
-            line_meta_for_parse("SHDL", 0x22, vec!["0x1234"], None),
+            line_meta_for_parse("SHLD", 0x22, vec!["0x1234"], None),
             line_meta_for_parse("DS", 0x102, vec!["_l1"], None),
             line_meta_for_parse("ADI", 0xc6, vec!["0x22"], None),
         ];
         let len = raw_lines.len();
 
         ass.parse(raw_lines).expect("should parse");
-        assert_eq!(ass.prog_width, 7);
+        assert_eq!(ass.end_address, 7);
 
-        let resolved_lines = ass.lines.borrow();
+        let resolved_lines = &ass.lines;
         assert_eq!(resolved_lines.len(), len, "no meta instructions");
 
-        let l0 = resolved_lines.get(0).unwrap();
+        let l0 = resolved_lines.first().unwrap();
         assert_eq!(l0.width, 1, "MOV A, B is one byte");
         assert_eq!(l0.address, 0, "MOV A, B address");
 
@@ -966,12 +778,12 @@ mod tests {
         assert_eq!(l1.address, 1, "DCR B address");
 
         let l2 = resolved_lines.get(2).unwrap();
-        assert_eq!(l2.width, 3, "SHDL takes a u16");
-        assert_eq!(l2.address, 2, "SHDL address");
+        assert_eq!(l2.width, 3, "SHLD takes a u16");
+        assert_eq!(l2.address, 2, "SHLD address");
 
         let l3 = resolved_lines.get(3).unwrap();
         assert_eq!(l3.width, 0, "_l1 refers to address 0");
-        assert_eq!(l3.address, 5, "SHDL address");
+        assert_eq!(l3.address, 5, "SHLD address");
 
         let l4 = resolved_lines.get(4).unwrap();
         assert_eq!(l4.width, 2, "ADI takes a u8");
@@ -985,22 +797,22 @@ mod tests {
         let raw_lines = vec![
             line_meta_for_parse("MOV", 0x40, vec!["A", "B"], Some("_l1")),
             line_meta_for_parse("IF", 0x107, vec!["2"], None),
-            line_meta_for_parse("SHDL", 0x22, vec!["0x0000"], None),
+            line_meta_for_parse("SHLD", 0x22, vec!["0x0000"], None),
             line_meta_for_parse("ENDIF", 0x108, vec![], None),
             line_meta_for_parse("IF", 0x107, vec!["0"], None),
-            line_meta_for_parse("SHDL", 0x22, vec!["0x1111"], None),
+            line_meta_for_parse("SHLD", 0x22, vec!["0x1111"], None),
             line_meta_for_parse("ENDIF", 0x108, vec![], None),
             line_meta_for_parse("MOV", 0x40, vec!["A", "B"], None),
         ];
 
         ass.parse(raw_lines).expect("should parse");
-        assert_eq!(ass.prog_width, 5);
+        assert_eq!(ass.end_address, 5);
 
-        let resolved_lines = ass.lines.borrow();
+        let resolved_lines = &ass.lines;
 
         assert_eq!(resolved_lines.len(), 3, "meta not included");
 
-        let l0 = resolved_lines.get(0).unwrap();
+        let l0 = resolved_lines.first().unwrap();
         assert_eq!(l0.address, 0, "MOV A, B address");
 
         let l1 = resolved_lines.get(1).unwrap();
@@ -1008,7 +820,7 @@ mod tests {
         assert_eq!(
             l1.args_list,
             vec!["0x0000".to_string()],
-            "SHDL with 0x0000 included"
+            "SHLD with 0x0000 included"
         );
 
         let l2 = resolved_lines.get(2).unwrap();
@@ -1022,7 +834,7 @@ mod tests {
         let raw_lines = vec![
             line_meta_for_parse("IF", 0x107, vec!["2"], None),
             line_meta_for_parse("IF", 0x107, vec!["0"], None),
-            line_meta_for_parse("SHDL", 0x22, vec!["0x1111"], None),
+            line_meta_for_parse("SHLD", 0x22, vec!["0x1111"], None),
             line_meta_for_parse("ENDIF", 0x108, vec![], None),
             line_meta_for_parse("ENDIF", 0x108, vec![], None),
         ];
@@ -1062,19 +874,19 @@ mod tests {
         let raw_lines = vec![
             line_meta_for_parse("MOV", 0x40, vec!["A", "B"], None),
             line_meta_for_parse("MACRO", 0x109, vec![], Some("_m1")),
-            line_meta_for_parse("SHDL", 0x22, vec!["0x1111"], None),
+            line_meta_for_parse("SHLD", 0x22, vec!["0x1111"], None),
             line_meta_for_parse("ENDM", 0x10a, vec![], None),
             line_meta_for_parse("MOV", 0x40, vec!["A", "B"], None),
         ];
 
         ass.parse(raw_lines).expect("should parse");
-        assert_eq!(ass.prog_width, 2);
+        assert_eq!(ass.end_address, 2);
 
-        let resolved_lines = ass.lines.borrow();
+        let resolved_lines = &ass.lines;
 
         assert_eq!(resolved_lines.len(), 2, "meta not included");
 
-        let l0 = resolved_lines.get(0).unwrap();
+        let l0 = resolved_lines.first().unwrap();
         assert_eq!(l0.address, 0, "MOV A, B address");
 
         let l1 = resolved_lines.get(1).unwrap();
@@ -1089,28 +901,28 @@ mod tests {
             line_meta_for_parse("MACRO", 0x109, vec![], Some("_m1")),
             line_meta_for_parse("MOV", 0x40, vec!["A", "B"], None),
             line_meta_for_parse("MOV", 0x40, vec!["A", "B"], None),
-            line_meta_for_parse("SHDL", 0x22, vec!["0x1111"], None),
+            line_meta_for_parse("SHLD", 0x22, vec!["0x1111"], None),
             line_meta_for_parse("ENDM", 0x10a, vec![], None),
             LineMeta {
                 inst: Some("_m1".to_string()),
                 ..Default::default()
             },
-            line_meta_for_parse("SHDL", 0x22, vec!["0x1111"], None),
+            line_meta_for_parse("SHLD", 0x22, vec!["0x1111"], None),
         ];
 
         ass.parse(raw_lines).expect("should parse");
-        assert_eq!(ass.prog_width, 8);
+        assert_eq!(ass.end_address, 8);
 
-        let resolved_lines = ass.lines.borrow();
+        let resolved_lines = &ass.lines;
 
         assert_eq!(resolved_lines.len(), 2, "macro not included");
 
-        let l0 = resolved_lines.get(0).unwrap();
+        let l0 = resolved_lines.first().unwrap();
         assert_eq!(l0.address, 0, "should be first instruction");
         assert_eq!(l0.width, 5, "should replace with macro width");
 
         let l1 = resolved_lines.get(1).unwrap();
-        assert_eq!(l1.address, 5, "SHDL should be after macro width");
+        assert_eq!(l1.address, 5, "SHLD should be after macro width");
     }
 
     #[test]
@@ -1121,28 +933,28 @@ mod tests {
             line_meta_for_parse("MACRO", 0x109, vec![], Some("_m1")),
             line_meta_for_parse("MOV", 0x40, vec!["A", "B"], None),
             line_meta_for_parse("MOV", 0x40, vec!["A", "B"], None),
-            line_meta_for_parse("SHDL", 0x22, vec!["0x1111"], None),
+            line_meta_for_parse("SHLD", 0x22, vec!["0x1111"], None),
             line_meta_for_parse("ENDM", 0x10a, vec![], None),
             LineMeta {
                 inst: Some("_m1".to_string()),
                 ..Default::default()
             },
-            line_meta_for_parse("SHDL", 0x22, vec!["0x1111"], None),
+            line_meta_for_parse("SHLD", 0x22, vec!["0x1111"], None),
         ];
 
         ass.parse_at(raw_lines, 200).expect("should parse");
-        assert_eq!(ass.prog_width, 208);
+        assert_eq!(ass.end_address, 208);
 
-        let resolved_lines = ass.lines.borrow();
+        let resolved_lines = &ass.lines;
 
         assert_eq!(resolved_lines.len(), 2, "macro not included");
 
-        let l0 = resolved_lines.get(0).unwrap();
+        let l0 = resolved_lines.first().unwrap();
         assert_eq!(l0.address, 200, "should be first instruction");
         assert_eq!(l0.width, 5, "should replace with macro width");
 
         let l1 = resolved_lines.get(1).unwrap();
-        assert_eq!(l1.address, 205, "SHDL should be after macro width");
+        assert_eq!(l1.address, 205, "SHLD should be after macro width");
     }
 
     #[test]
@@ -1152,7 +964,7 @@ mod tests {
         let raw_lines = vec![
             line_meta_for_parse("MACRO", 0x109, vec![], Some("_m1")),
             line_meta_for_parse("MACRO", 0x109, vec![], Some("_m2")),
-            line_meta_for_parse("SHDL", 0x22, vec!["0x1111"], None),
+            line_meta_for_parse("SHLD", 0x22, vec!["0x1111"], None),
             line_meta_for_parse("ENDM", 0x10a, vec![], None),
             line_meta_for_parse("ENDM", 0x10a, vec![], None),
         ];
@@ -1196,7 +1008,7 @@ mod tests {
         let e = ass
             .parse(raw_lines)
             .expect_err("ORG not permitted in macro");
-        assert!(matches!(e, ParserError::OrigInMacro));
+        assert!(matches!(e, ParserError::OrgInMacro));
     }
 
     #[test]
@@ -1206,21 +1018,21 @@ mod tests {
         let raw_lines = vec![
             line_meta_for_parse("MOV", 0x40, vec!["A", "B"], None),
             line_meta_for_parse("ORG", 0x105, vec!["0X1000"], None),
-            line_meta_for_parse("SHDL", 0x22, vec!["0x1111"], None),
+            line_meta_for_parse("SHLD", 0x22, vec!["0x1111"], None),
         ];
 
         ass.parse(raw_lines).expect("should parse");
 
-        let resolved_lines = ass.lines.borrow();
+        let resolved_lines = &ass.lines;
         assert_eq!(resolved_lines.len(), 2, "no meta instructions");
 
-        let l0 = resolved_lines.get(0).unwrap();
+        let l0 = resolved_lines.first().unwrap();
         assert_eq!(l0.width, 1, "MOV A, B is one byte");
         assert_eq!(l0.address, 0, "MOV A, B address");
 
         let l1 = resolved_lines.get(1).unwrap();
-        assert_eq!(l1.width, 3, "SHDL takes a u16");
-        assert_eq!(l1.address, 0x1000, "SHDL address");
+        assert_eq!(l1.width, 3, "SHLD takes a u16");
+        assert_eq!(l1.address, 0x1000, "SHLD address");
     }
 
     #[test]
@@ -1236,7 +1048,7 @@ mod tests {
         assert!(matches!(err, ParserError::LabelAlreadyDefined(_, _)));
         if let ParserError::LabelAlreadyDefined(label, val) = err {
             assert_eq!(label, "_l1", "'_l1' already defined");
-            assert_eq!(val.value, Some(0), "previous definition is 0");
+            assert_eq!(val.value, 0, "previous definition is 0");
         }
     }
 
@@ -1253,7 +1065,7 @@ mod tests {
         assert!(matches!(err, ParserError::LabelAlreadyDefined(_, _)));
         if let ParserError::LabelAlreadyDefined(label, val) = err {
             assert_eq!(label, "label", "'label' already defined");
-            assert_eq!(val.value, Some(200), "previous definition is 200");
+            assert_eq!(val.value, 200, "previous definition is 200");
         }
     }
 
@@ -1268,13 +1080,9 @@ mod tests {
 
         ass.parse(raw_lines).expect("should parse");
 
-        let labels = ass.labels.borrow();
-        assert!(labels.get("label").is_some(), "'label' should exist");
-
-        let label = labels.get("label").unwrap();
-
-        assert!(label.is_set, "label is from SET");
-        assert_eq!(label.value, Some(201), "label is updated value");
+        let label = ass.labels.get("label").expect("'label' should exist");
+        assert_eq!(label.kind, LabelKind::Set, "label is from SET");
+        assert_eq!(label.value, 201, "label is updated value");
     }
 
     #[test]
@@ -1289,20 +1097,15 @@ mod tests {
 
         ass.parse(raw_lines).expect("should parse");
 
-        let lines = ass.lines.borrow();
-        assert_eq!(lines.len(), 0, "no generate-able lines");
+        assert!(ass.lines.is_empty(), "no generate-able lines");
 
-        let labels = ass.labels.borrow();
+        let eq200 = ass.labels.get("EQ200").expect("'EQ200' should exist");
+        assert_eq!(eq200.kind, LabelKind::Equ, "EQ200 is from EQU");
+        assert_eq!(eq200.value, 200, "EQ200 is updated value");
 
-        assert!(labels.get("EQ200").is_some(), "'EQ200' should exist");
-        let eq200 = labels.get("EQ200").unwrap();
-        assert!(eq200.is_eq, "EQ200 is from EQU");
-        assert_eq!(eq200.value, Some(200), "EQ200 is updated value");
-
-        assert!(labels.get("SET20X").is_some(), "'SET20X' should exist");
-        let set20x = labels.get("SET20X").unwrap();
-        assert!(set20x.is_set, "SET20X is from SET");
-        assert_eq!(set20x.value, Some(200), "SET20X is updated value");
+        let set20x = ass.labels.get("SET20X").expect("'SET20X' should exist");
+        assert_eq!(set20x.kind, LabelKind::Set, "SET20X is from SET");
+        assert_eq!(set20x.value, 200, "SET20X is updated value");
     }
 
     fn line_meta_for_gen(
@@ -1328,8 +1131,7 @@ mod tests {
     fn gen_for_instruction_no_args() {
         let line = line_meta_for_gen("MOV", 0x40, vec!["1", "2"], None, 0, 1);
         let ass = Assembler::new(AssembleArgs::new());
-        let (bytes, pc) = ass.gen_for_instruction(&line, 0).expect("should generate");
-        assert!(!pc, "pc ($) was not used");
+        let bytes = ass.gen_for_instruction(&line, 0).expect("should generate");
         assert_eq!(bytes, vec![0x4a]);
     }
 
@@ -1339,8 +1141,7 @@ mod tests {
         // the true OP after expression parsing (0x2e)
         let line = line_meta_for_gen("MVI", 0x06, vec!["5", "0X12"], None, 0, 2);
         let ass = Assembler::new(AssembleArgs::new());
-        let (bytes, pc) = ass.gen_for_instruction(&line, 0).expect("should generate");
-        assert!(!pc, "pc ($) was not used");
+        let bytes = ass.gen_for_instruction(&line, 0).expect("should generate");
         assert_eq!(bytes, vec![0x2e, 0x12]);
     }
 
@@ -1348,8 +1149,7 @@ mod tests {
     fn gen_for_instruction_argw() {
         let line = line_meta_for_gen("JMP", 0xc3, vec!["0X1234"], None, 0, 3);
         let ass = Assembler::new(AssembleArgs::new());
-        let (bytes, pc) = ass.gen_for_instruction(&line, 0).expect("should generate");
-        assert!(!pc, "pc ($) was not used");
+        let bytes = ass.gen_for_instruction(&line, 0).expect("should generate");
         assert_eq!(bytes, vec![0xc3, 0x34, 0x12]);
     }
 
@@ -1357,10 +1157,9 @@ mod tests {
     fn gen_for_instruction_argb_with_sp() {
         let line = line_meta_for_gen("IN", 0xdb, vec!["$ + 2"], None, 0x212, 2);
         let ass = Assembler::new(AssembleArgs::new());
-        let (bytes, pc) = ass
+        let bytes = ass
             .gen_for_instruction(&line, 0x212)
             .expect("should generate");
-        assert!(pc, "pc ($) was used");
         assert_eq!(bytes, vec![0xdb, 0x14]);
     }
 
@@ -1368,20 +1167,15 @@ mod tests {
     fn gen_for_instruction_db() {
         let line = line_meta_for_gen("DB", 0x100, vec!["0X10", "'ABAB'", "$"], None, 0, 4);
         let ass = Assembler::new(AssembleArgs::new());
-        let (bytes, pc) = ass.gen_for_instruction(&line, 0).expect("should generate");
-        assert!(pc, "pc ($) not used");
-        assert_eq!(
-            bytes,
-            vec![0x10, b'A', b'B', b'A', b'B', 0x00]
-        );
+        let bytes = ass.gen_for_instruction(&line, 0).expect("should generate");
+        assert_eq!(bytes, vec![0x10, b'A', b'B', b'A', b'B', 0x00]);
     }
 
     #[test]
     fn gen_for_instruction_dw() {
         let line = line_meta_for_gen("DW", 0x101, vec!["0X1234", "0X10", "'ABPP'"], None, 0, 6);
         let ass = Assembler::new(AssembleArgs::new());
-        let (bytes, pc) = ass.gen_for_instruction(&line, 0).expect("should generate");
-        assert!(!pc, "pc ($) was not used");
+        let bytes = ass.gen_for_instruction(&line, 0).expect("should generate");
         assert_eq!(bytes, vec![0x34, 0x12, 0x10, 0x00, b'A', b'B']);
     }
 
@@ -1389,8 +1183,7 @@ mod tests {
     fn gen_for_instruction_ds() {
         let line = line_meta_for_gen("DS", 0x102, vec!["10"], None, 0, 10);
         let ass = Assembler::new(AssembleArgs::new());
-        let (bytes, pc) = ass.gen_for_instruction(&line, 0).expect("should generate");
-        assert!(!pc, "pc ($) was not used");
+        let bytes = ass.gen_for_instruction(&line, 0).expect("should generate");
         assert_eq!(bytes, vec![0x00; 10]);
     }
 
@@ -1399,27 +1192,10 @@ mod tests {
             lines: vec![
                 line_meta_for_gen("MOV", 0x40, vec!["0", "0"], None, 0x00, 1),
                 line_meta_for_gen("MOV", 0x40, vec!["0", "1"], None, 0x01, 1),
-                line_meta_for_gen("SHDL", 0x22, vec!["0X1111"], None, 0x02, 3),
+                line_meta_for_gen("SHLD", 0x22, vec!["0X1111"], None, 0x02, 3),
             ],
-            bytes: vec![],
             width: 5,
-            uses_pc: false,
         }
-    }
-
-    #[test]
-    fn gen_macro_no_pc() {
-        let mut macros = HashMap::new();
-        macros.insert("_m1".to_string(), macro_no_pc());
-        let mut ass = Assembler::new(AssembleArgs::new());
-        ass.macros = RefCell::new(macros);
-        ass.gen_macros().expect("macro should compile");
-        let ass_macros = ass.macros.borrow();
-        let _m1 = ass_macros
-            .get(&"_m1".to_string())
-            .expect("macro should exist");
-        assert_eq!(_m1.bytes, vec![0x40, 0x41, 0x22, 0x11, 0x11]);
-        assert!(!_m1.uses_pc, "shouldn't use PC");
     }
 
     fn macro_with_pc() -> Macro {
@@ -1427,57 +1203,64 @@ mod tests {
             lines: vec![
                 line_meta_for_gen("MOV", 0x40, vec!["0", "0"], None, 0x00, 1),
                 line_meta_for_gen("MOV", 0x40, vec!["0", "1"], None, 0x01, 1),
-                line_meta_for_gen("SHDL", 0x22, vec!["$"], None, 0x02, 3),
+                line_meta_for_gen("SHLD", 0x22, vec!["$"], None, 0x02, 3),
             ],
-            bytes: vec![],
             width: 5,
-            uses_pc: false,
+        }
+    }
+
+    fn assembler_with_macro(name: &str, m: Macro) -> Assembler {
+        let mut ass = Assembler::new(AssembleArgs::new());
+        ass.macros.insert(name.to_string(), m);
+        ass
+    }
+
+    fn macro_call(name: &str, address: u16, width: usize) -> LineMeta {
+        LineMeta {
+            inst: Some(name.to_string()),
+            address,
+            width,
+            ..Default::default()
         }
     }
 
     #[test]
+    fn gen_macro_no_pc() {
+        let ass = assembler_with_macro("_m1", macro_no_pc());
+        let bytes = ass
+            .gen_for_line(&macro_call("_m1", 0x10, 5), 0x10)
+            .expect("macro should compile");
+        assert_eq!(bytes, vec![0x40, 0x41, 0x22, 0x11, 0x11]);
+    }
+
+    #[test]
     fn gen_macro_with_pc() {
-        let mut macros = HashMap::new();
-        macros.insert("_m1".to_string(), macro_with_pc());
-        let mut ass = Assembler::new(AssembleArgs::new());
-        ass.macros = RefCell::new(macros);
-        ass.gen_macros().expect("macro should compile");
-        let ass_macros = ass.macros.borrow();
-        let _m1 = ass_macros
-            .get(&"_m1".to_string())
-            .expect("macro should exist");
-        assert_eq!(_m1.bytes, vec![0x40, 0x41, 0x22, 0x02, 0x00]);
-        assert!(_m1.uses_pc, "shouldn't use PC");
+        let ass = assembler_with_macro("_m1", macro_with_pc());
+        let bytes = ass
+            .gen_for_line(&macro_call("_m1", 0x10, 5), 0x10)
+            .expect("macro should compile");
+        assert_eq!(
+            bytes,
+            vec![0x40, 0x41, 0x22, 0x12, 0x00],
+            "$ is relative to the call"
+        );
     }
 
     #[test]
     fn gen_prog_with_macro_no_pc() {
         let mut ass = Assembler::new(AssembleArgs::new());
 
-        let mut macros = HashMap::new();
-        let mut _m1 = macro_no_pc();
-        macros.insert("_m1".to_string(), _m1);
-        ass.macros = RefCell::new(macros);
-        ass.gen_macros().expect("macro should compile");
+        ass.macros.insert("_m1".to_string(), macro_no_pc());
 
-        let mut labels = HashMap::new();
-        labels.insert("B".to_string(), Label::new_equ(Some(0)));
-        labels.insert("C".to_string(), Label::new_equ(Some(1)));
-        labels.insert("D".to_string(), Label::new_equ(Some(2)));
-        ass.labels = labels;
+        ass.labels = register_definitions();
 
         let lines = vec![
             line_meta_for_gen("MOV", 0x40, vec!["B", "C"], None, 0x00, 1),
-            LineMeta {
-                inst: Some("_m1".to_string()),
-                width: 5,
-                address: 0x01,
-                ..Default::default()
-            },
-            line_meta_for_gen("SHDL", 0x22, vec!["$"], None, 0x06, 3),
+            macro_call("_m1", 0x01, 5),
+            line_meta_for_gen("SHLD", 0x22, vec!["$"], None, 0x06, 3),
         ];
-        ass.lines = RefCell::new(lines);
-        ass.prog_width = 9;
+        ass.lines = lines;
+        ass.end_address = 9;
 
         let bytes = ass.generate_prog().expect("should compile");
         assert_eq!(
@@ -1490,39 +1273,153 @@ mod tests {
     fn gen_prog_with_macro_with_pc() {
         let mut ass = Assembler::new(AssembleArgs::new());
 
-        let mut macros = HashMap::new();
-        let mut _m1 = macro_with_pc();
-        macros.insert("_m1".to_string(), _m1);
-        ass.macros = RefCell::new(macros);
-        ass.gen_macros().expect("macro should compile");
+        ass.macros.insert("_m1".to_string(), macro_with_pc());
 
-        let mut labels = HashMap::new();
-        labels.insert("B".to_string(), Label::new_equ(Some(0)));
-        labels.insert("C".to_string(), Label::new_equ(Some(1)));
-        labels.insert("D".to_string(), Label::new_equ(Some(2)));
-        ass.labels = labels;
+        ass.labels = register_definitions();
 
         let lines = vec![
             line_meta_for_gen("MOV", 0x40, vec!["B", "C"], None, 0x00, 1),
-            LineMeta {
-                inst: Some("_m1".to_string()),
-                width: 5,
-                address: 0x01,
-                ..Default::default()
-            },
-            line_meta_for_gen("SHDL", 0x22, vec!["$"], None, 0x06, 3),
+            macro_call("_m1", 0x01, 5),
+            line_meta_for_gen("SHLD", 0x22, vec!["$"], None, 0x06, 3),
         ];
-        ass.lines = RefCell::new(lines);
-        ass.prog_width = 9;
+        ass.lines = lines;
+        ass.end_address = 9;
 
         let bytes = ass.generate_prog().expect("should compile");
         assert_eq!(
             bytes,
             vec![
                 0x41, 0x40, 0x41, 0x22,
-                // The SHDL in the macro is now MOV, MOV, MOV, SHDL, so 0x03
+                // The SHLD in the macro is now MOV, MOV, MOV, SHLD, so 0x03
                 0x03, 0x00, 0x22, 0x06, 0x00
             ]
         );
+    }
+
+    fn parse_source(load_at: u16, source: &str) -> Result<Vec<u8>, AssemblerError> {
+        let mut ass = Assembler::new(AssembleArgs {
+            load_at,
+            ..AssembleArgs::new()
+        });
+        ass.labels = register_definitions();
+        let lines = source
+            .lines()
+            .enumerate()
+            .filter_map(|(idx, line)| {
+                tokenizer::tokenize(line).unwrap().map(|mut meta| {
+                    meta.line_no = idx + 1;
+                    meta
+                })
+            })
+            .collect();
+        ass.parse_at(lines, load_at)?;
+        Ok(ass.generate_prog()?)
+    }
+
+    fn assemble_ok(source: &str) -> Vec<u8> {
+        parse_source(0, source).expect("should assemble")
+    }
+
+    fn assemble_err(source: &str) -> AssemblerError {
+        parse_source(0, source).expect_err("should fail")
+    }
+
+    #[test]
+    fn label_only_line() {
+        assert_eq!(assemble_ok("_loop:\nJMP _loop"), vec![0xc3, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn nested_macro_calls() {
+        let bytes = assemble_ok(
+            "_a: MACRO\n NOP\n LXI H, $\n ENDM\n_b: MACRO\n MOV A, B\n _a\n ENDM\n NOP\n _b",
+        );
+        assert_eq!(bytes, vec![0x00, 0x78, 0x00, 0x21, 0x03, 0x00]);
+    }
+
+    #[test]
+    fn load_address_offsets_output_and_labels() {
+        let bytes = parse_source(0x100, "_l: NOP\n JMP _l").expect("should assemble");
+        assert_eq!(bytes, vec![0x00, 0xc3, 0x00, 0x01], "no leading padding");
+
+        let bytes =
+            parse_source(0x100, "_m: MACRO\n JMP $\n ENDM\n NOP\n _m").expect("should assemble");
+        assert_eq!(
+            bytes,
+            vec![0x00, 0xc3, 0x01, 0x01],
+            "$ in macro uses load address once"
+        );
+    }
+
+    #[test]
+    fn ds_wider_than_a_byte() {
+        assert_eq!(assemble_ok("DS 300").len(), 300);
+    }
+
+    #[test]
+    fn register_pair_ops() {
+        assert_eq!(
+            assemble_ok("LDAX D\nSTAX B\nDAD SP\nPUSH PSW\nRET\nRLC"),
+            vec![0x1a, 0x02, 0x39, 0xf5, 0xc9, 0x07]
+        );
+    }
+
+    #[test]
+    fn malformed_input_errors_without_panicking() {
+        for source in [
+            "IF\nENDIF",
+            "MACRO\nENDM",
+            "EQU 5",
+            "MVI A, 1 +",
+            "MVI A, ''",
+            "LXI B, SP",
+            "MVI A, 1 / 0",
+            "_x: EQU 1\n_x: SET 2",
+            "_x:\n_x:",
+            "ORG 0xffff\nLXI B, 0",
+            "_unknown",
+            "END_OF_LINE: _m",
+        ] {
+            let e = assemble_err(source);
+            assert!(
+                matches!(e, AssemblerError::Parser(_) | AssemblerError::CodeGen(_)),
+                "{:?}",
+                e
+            );
+        }
+    }
+
+    #[test]
+    fn org_before_load_address() {
+        let e = parse_source(0x100, "ORG 0x10").expect_err("should fail");
+        assert!(matches!(
+            e,
+            AssemblerError::Parser(ParserError::OrgBeforeLoadAddress(0x10, 0x100))
+        ));
+    }
+
+    #[test]
+    fn program_may_end_at_top_of_memory() {
+        let bytes = parse_source(0xfffe, "LXI H, 0").map(|b| b.len());
+        assert!(bytes.is_err(), "3 bytes from 0xfffe overflows");
+        let bytes = parse_source(0xfffd, "LXI H, 0").expect("fits exactly");
+        assert_eq!(bytes.len(), 3);
+    }
+
+    #[test]
+    fn register_names_free_without_definitions() {
+        let mut ass = Assembler::new(AssembleArgs::new());
+        let lines = ["A: EQU 0x12", "ADI A"]
+            .into_iter()
+            .filter_map(|line| tokenizer::tokenize(line).unwrap())
+            .collect();
+        ass.parse(lines).expect("A is free to define");
+        assert_eq!(ass.generate_prog().unwrap(), vec![0xc6, 0x12]);
+
+        let e = assemble_err("A: EQU 0x12");
+        assert!(matches!(
+            e,
+            AssemblerError::Parser(ParserError::LabelAlreadyDefined(_, _))
+        ));
     }
 }
